@@ -1,0 +1,32 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+*.egg-info/
+*.db
+.venv/
+venv/
+.DS_Store
+build/
+dist/
+.coverage
+coverage.xml
+htmlcov/
+
+# Injection-Shield specific
+e/
+evidence/
+*.tmp
+tmp_*.py
+review*_test.py
+review_scripts/
+live_tests.py
+
+# Hermes runtime state
+auth.json
+auth.lock
+state.db*
+*.sqlite*
+.venv-test/

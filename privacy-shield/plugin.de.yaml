@@ -1,0 +1,21 @@
+name: privacy-shield
+version: "1.7.0"
+description: >-
+  Privacy-Shield — Tokenisiert personenbezogene Daten (PII) in
+  LLM-Ausgaben, bevor sie an Cloud-Provider gesendet werden. Modi:
+  off / audit / restore. Konfiguration über Desktop-Controls oder YAML.
+api: dashboard/plugin_api.py
+provides_hooks:
+  - pre_llm_call
+  - post_llm_call
+  - transform_llm_output
+author: operator
+dependencies:
+  - cryptography>=41.0.0
+  - click>=8.0
+  - pytesseract>=0.3.10
+  - Pillow>=10.0.0
+  - pillow-heif>=0.16.0  # iPhone HEIC support (optional but recommended)
+license: MIT
+repository: https://github.com/MOTHR/hermes-privacy-shield
+min_hermes_version: "0.1.0"

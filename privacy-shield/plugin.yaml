@@ -1,0 +1,111 @@
+name: privacy-shield
+version: "1.7.5"
+description: >-
+  Privacy-Shield — Tokenizes personal data (PII) in LLM output before
+  sending it to cloud providers. Modes: off / audit / restore. Configurable
+  via Desktop-Controls or YAML.
+api: dashboard/plugin_api.py
+provides_hooks:
+  - pre_llm_call
+  - post_llm_call
+  - post_api_request
+  - transform_llm_output
+  - on_session_finalize
+author: operator
+dependencies:
+  - cryptography>=41.0.0
+  - click>=8.0
+  - pytesseract>=0.3.10
+  - Pillow>=10.0.0
+  - pillow-heif>=0.16.0  # iPhone HEIC support (optional but recommended)
+license: MIT
+repository: https://github.com/MOTHR/hermes-privacy-shield
+min_hermes_version: "0.1.0"
+settings:
+  - name: token_cache_max_size
+    type: int
+    default: 10000
+    description: "Max entries in token cache before LRU eviction."
+  - name: max_session_salts
+    type: int
+    default: 1000
+    description: "Max concurrent sessions before LRU eviction of their salts and tokens."
+  - name: confidence_threshold
+    type: float
+    default: 0.8
+    description: "Minimum confidence (0.0-1.0) for auto-masking. Matches below this threshold are logged but not pseudonymized. FIX-4B (Architect NEU-002)."
+
+  - name: pdf_enabled
+    type: bool
+    default: true
+    description: "Enable PDF preprocessing (requires pdfplumber)."
+  - name: pdf_restore_dir
+    type: string
+    default: "~/.hermes/privacy/restore/pdf"
+    description: "BUTLER-PS-7: Directory for sanitized PDF output. Default moved from /tmp to ~/.hermes/privacy/restore for shared-host hardening (chmod 700)."
+  - name: pdf_max_size_mb
+    type: int
+    default: 100
+    description: "Maximum PDF size in MB (DoS-protection)."
+  - name: image_enabled
+    type: bool
+    default: true
+    description: "Enable image OCR (requires tesseract + pytesseract + Pillow)."
+  - name: image_restore_dir
+    type: string
+    default: "~/.hermes/privacy/restore/image"
+    description: "BUTLER-PS-7: Directory for sanitized image output. Default moved from /tmp to ~/.hermes/privacy/restore for shared-host hardening (chmod 700)."
+  - name: image_max_size_mb
+    type: int
+    default: 50
+    description: "Maximum image size in MB (DoS-protection)."
+  - name: ocr_lang
+    type: string
+    default: "deu+eng"
+    description: "Tesseract language pack (e.g. 'deu+eng', 'fra', 'spa')."
+  - name: ocr_min_confidence
+    type: int
+    default: 30
+    description: "Minimum OCR confidence (0-100) per word before downstream detection."
+  - name: audit_jsonl_path
+    type: string
+    default: "~/.hermes/profiles/default/workspace/privacy-shield-audit.jsonl"
+    description: "FIX-PS3: persistenter Audit-Trail (JSONL). chmod 600 nach jedem Write. Side-channel-safe (bucketed count + SHA-256 session hash, kein Klartext-PII)."
+  - name: audit_jsonl_enabled
+    type: bool
+    default: true
+    description: "FIX-PS3: persistenter Audit-Trail aktivieren. Disable nur für Sonder-Debug-Setups (z.B. ephemeral container)."
+  - name: audit_log_path
+    type: string
+    default: "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log"
+    description: "BUTLER-PS-4 / FIX-PS-R5-OPS: Operator-Logger Pfad. Wird via RotatingFileHandler beschrieben (chmod 600/700)."
+  - name: audit_log_max_bytes
+    type: int
+    default: 10485760
+    description: "BUTLER-PS-4: Rotations-Schwelle in Bytes (Default 10 MiB)."
+  - name: audit_log_backup_count
+    type: int
+    default: 5
+    description: "BUTLER-PS-4: Anzahl rotierter Backups (privacy-shield.log.1 ... .5)."
+  - name: audit_log_retention_days
+    type: int
+    default: 90
+    description: "BUTLER-PS-4: Auto-Prune Schwelle in Tagen (DSGVO Art. 5(1)(e) Speicherbegrenzung)."
+  - name: reasoning_mode
+    type: choice
+    default: restore
+    choices:
+      - off
+      - audit
+      - restore
+    description: "v1.7.0 Reasoning redaction mode: off | audit | restore."
+  - name: reasoning_confidence_threshold
+    type: float
+    default: 0.85
+    description: "v1.7.0 Minimum confidence (0.0-1.0) for reasoning PII auto-masking."
+# Hook execution priority: larger numbers run later.  Privacy-Shield must run
+# AFTER injection-shield so that prompt-injection analysis already happened.
+hook_priority:
+  pre_llm_call: 200
+  post_llm_call: 200
+  transform_llm_output: 200

@@ -1,0 +1,61 @@
+"""Setuptools hooks for privacy-shield.
+
+v1.5.0 (Desktop-Controls): on ``pip install`` / ``pip install -e .`` we copy
+``desktop-plugin/`` into ``~/.hermes/desktop-plugins/privacy-shield-controls/``
+so the bundled desktop UI is available immediately. The backend files under
+``dashboard/`` are shipped in the wheel via MANIFEST.in and mounted by the
+Hermes dashboard plugin system.
+"""
+
+from __future__ import annotations
+
+import logging
+import shutil
+from pathlib import Path
+
+from setuptools import setup
+from setuptools.command.develop import develop as _develop
+from setuptools.command.install import install as _install
+
+logger = logging.getLogger(__name__)
+
+DEST_NAME = "privacy-shield-controls"
+
+
+def _install_desktop_plugin() -> None:
+    """Copy bundled desktop plugin into the Hermes desktop-plugins directory."""
+    source = Path(__file__).resolve().parent / "desktop-plugin"
+    if not source.exists():
+        logger.warning("privacy-shield: desktop-plugin source not found at %s", source)
+        return
+
+    dest = Path.home() / ".hermes" / "desktop-plugins" / DEST_NAME
+    try:
+        if dest.exists():
+            shutil.rmtree(dest)
+        shutil.copytree(source, dest)
+        logger.info("privacy-shield: installed desktop plugin to %s", dest)
+    except Exception as exc:  # noqa: BLE001 - best-effort installation
+        logger.warning("privacy-shield: failed to install desktop plugin: %s", exc)
+
+
+class install(_install):
+    def run(self) -> None:
+        super().run()
+        _install_desktop_plugin()
+
+
+class develop(_develop):
+    def run(self) -> None:
+        super().run()
+        _install_desktop_plugin()
+
+
+# Keep this file minimal: all metadata lives in pyproject.toml. setup.py only
+# exists to attach the desktop-plugin install hook via cmdclass.
+setup(
+    cmdclass={
+        "install": install,
+        "develop": develop,
+    },
+)

@@ -1,0 +1,98 @@
+[build-system]
+requires = ["setuptools>=68.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "injection-shield"
+dynamic = ["version"]
+description = "Prompt-injection defense plugin for Hermes Agent"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Injection-Shield Maintainers"}]
+dependencies = [
+    "pyyaml>=6.0",
+    "requests>=2.28",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",
+]
+# explicit `test` group — mirrors the canonical ``pip install -e .[test]``
+# workflow. ``dev`` is kept for backward compatibility with older callers.
+test = [
+    "pytest>=7.0",
+    "pytest-asyncio>=0.21",  # async hook tests (pre/post_llm_call)
+    "pytest-cov>=4.0",       # coverage reporting
+    "tomli>=1.2.0",          # Python <3.11 pyproject.toml parsing in tests
+    "fastapi>=0.100",        # dashboard API tests use FastAPI TestClient
+    "httpx>=0.24",           # TestClient peer dependency
+]
+
+[tool.setuptools]
+include-package-data = true
+packages = [
+    "injection_shield",
+    "injection_shield.detectors",
+    "injection_shield.mcp",
+]
+
+[tool.setuptools.package-dir]
+"injection_shield" = "."
+"injection_shield.detectors" = "detectors"
+"injection_shield.mcp" = "mcp"
+
+[tool.setuptools.package-data]
+injection_shield = ["plugin.yaml"]
+
+# single-source-of-truth for the version. ``__init__.py`` is the canonical
+# source; setuptools reads ``injection_shield.__version__`` at build time.
+# This is what makes the wheel/SDIST filenames match the runtime version
+# exposed via ``importlib.metadata.version("injection-shield")``.
+[tool.setuptools.dynamic]
+version = {attr = "injection_shield.__version__"}
+
+[project.scripts]
+injection-shield = "injection_shield.cli:main"
+
+[tool.pytest.ini_options]
+# asyncio_mode = "auto" lets us decorate async tests with
+# @pytest.mark.asyncio OR rely on the auto-mode detector, matching the
+# conventions already used by the async hook tests.
+testpaths = ["tests"]
+asyncio_mode = "auto"
+python_files = ["test_*.py"]
+python_functions = ["test_*"]
+addopts = "-v --tb=short --strict-markers"
+
+[tool.ruff]
+line-length = 100
+exclude = [
+    "tmp_mypy",
+    ".venv",
+    "build",
+    "dist",
+    ".git",
+]
+
+[tool.ruff.lint]
+ignore = [
+    "I001",   # import order differs between local ruff and GitHub Actions image; keep functionality lint
+    "N999",   # repo name contains hyphen; package is published as injection_shield
+    "BLE001", # broad exception guards are intentional resilience points
+    "TRY203", # re-raise after logging backup is intentional
+    "SIM102", # nested if-statements are clearer in validation chains
+    "SIM103", # explicit bool guard is clearer in _enabled_guard
+    "ANN001", "ANN002", "ANN003", "ANN101", "ANN102", "ANN201", "ANN202", "ANN204", "ANN205", "ANN206",
+    "ARG001", # unused arguments in pytest hooks / test fixtures
+    "RUF012", # mutable class defaults are intentional config caches
+    "FURB122", # f.write in loop is acceptable for test fixtures
+    "RUF100", # noqa directives target other linter configs
+    "S112", # try-except-continue in base64 decoder loop is a deliberate best-effort parse
+    "EXE001", # shebang is acceptable for executable scripts
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004", "PLW1510", "RUF059", "FURB122", "RUF100", "ANN001", "ANN002", "ANN003", "ARG001"]

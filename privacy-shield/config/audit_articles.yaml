@@ -1,0 +1,50 @@
+# EU AI Act Article Mapping for Privacy-Shield Audit Reports
+# Maps audit-event patterns to the regulatory articles they demonstrate.
+articles:
+  art_9:
+    title: "Article 9 — Risk Management System"
+    condition: "event.severity == 'high' or event.event == 'blocked_action'"
+    evidence_fields:
+      - "event"
+      - "severity"
+      - "session_id_hash"
+      - "ts"
+    description: "High-risk events and blocked actions are evidence that the system identifies and mitigates risks before provider egress."
+  art_11:
+    title: "Article 11 — Quality Management"
+    condition: "event contains pii_types or masked_count_bucket != '0'"
+    evidence_fields:
+      - "pii_types"
+      - "masked_count_bucket"
+      - "model"
+      - "mode"
+    description: "PII detection rate, bucketed counts, and model/mode metadata demonstrate systematic quality control of the pseudonymisation pipeline."
+  art_12:
+    title: "Article 12 — Record-Keeping / Logging"
+    condition: "true"
+    evidence_fields:
+      - "ts"
+      - "event"
+      - "session_id_hash"
+      - "platform"
+      - "model"
+    description: "Every audit event is logged with a timestamp, session hash, and runtime context to provide a non-repudiable trail."
+  art_14:
+    title: "Article 14 — Human Oversight"
+    condition: "event.event in ('approval_required', 'approval_granted', 'approval_denied', 'human_review') or event.action == 'approved'"
+    evidence_fields:
+      - "event"
+      - "action"
+      - "session_id_hash"
+      - "ts"
+    description: "Approval and human-review events document that meaningful human control is exercised over high-impact decisions."
+
+# Field mapping from the real Privacy-Shield audit JSONL format to the
+# generic schema expected by the PDF report generator.
+field_map:
+  timestamp: "ts"
+  user_hash: "session_id_hash"
+  tool: "platform"
+  pii_detected: "pii_types"
+  action: "event"
+  result: "masked_count_bucket"

@@ -1,0 +1,233 @@
+# Privacy-Shield
+
+🌐 [Deutsch](README.de.md) | English
+
+DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visible LLM output and reasoning content.
+
+**Version:** 1.7.0 (2026-09-09) — 58 detection patterns · 820 tests · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
+
+## Features
+
+- **58 detection patterns** across 7 categories (email, IBAN, phone, crypto wallets, JWT, OAuth, GitHub PAT, MAC/IMEI/IMSI, etc.)
+- **Text + Markdown + Code** — plain-text processing
+- **PDF pipeline** — extracts text from text-based PDFs, tokenizes, produces sanitized PDF
+- **Image OCR** — JPG/PNG/HEIC/WebP/TIFF/BMP via Tesseract 5.5.2, multi-language (deu+eng default)
+- **AES-256-GCM encryption** with PBKDF2 (100k iterations) for token mapping
+- **In-memory mapping table** with crypto-shredding (no disk leak)
+- **Egress whitelist** — restore only in allowed channels (e.g. your Telegram bot)
+- **Modes:** off / audit / limited / strict / paranoid
+- **Provider detection** — Ollama-local = bypass (no cloud egress = no shield needed)
+- **Unicode normalization** (NFKC + homoglyph mapping)
+- **Cache-bypass tag** for local reads (local data = no shield)
+- **GDPR compliance** — out-of-the-box with processor agreement checklist + records template
+
+## Quickstart (5 minutes)
+
+```bash
+# 1. Install (via Git — GitHub access required)
+pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.0
+# or for development with editable source
+pip install -e .
+
+# 2. Generate encryption key (once)
+python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
+
+# 3. Enable plugin (Hermes loader)
+# In config.yaml: plugins.enabled: [privacy-shield]
+
+# 4. Test
+privacy-shield --help
+privacy-shield scan "Contact: alice@example.com"
+privacy-shield test --text "Help with alice@example.com and IBAN DE89370400440532013000"
+```
+
+## Desktop Controls (v1.5.0+)
+
+Privacy-Shield ships an official desktop plugin so you can tune settings in the Hermes Desktop app instead of editing YAML:
+
+- Enable/disable the plugin
+- Switch operating mode (`off`/`audit`/`limited`/`strict`/`paranoid`)
+- Adjust the confidence threshold
+- Manage restore-allowed channels
+- Toggle PDF / Image OCR / cache bypass
+- Run a synthetic restore smoke test
+
+The desktop plugin is bundled in `desktop-plugin/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .`). **No manual copying is required.**
+
+The backend lives in `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system at `/api/plugins/privacy-shield/`.
+
+For a visual walkthrough see `docs/desktop-controls.md`.
+
+## Reasoning Protection v1.7.0 (Pre-Intake)
+
+Privacy-Shield extends protection to **reasoning/thinking blocks** from OpenAI, Anthropic, and Google. These internal thoughts can contain real PII and secrets that never appear in visible output (the [Stolen Thoughts](https://stolen-thoughts.com) problem, 2026).
+
+### How it works (two layers)
+
+**Layer 1 — Pre-Intake Redaction (v1.7.0, closes GB-009):**
+- The `post_api_request` hook fires directly after response intake — **before** Hermes persists the turn to `state.db`.
+- It mutates reasoning fields (`reasoning`, `reasoning_content`, `reasoning_details`) **in-place on the live assistant message object**.
+- Result: the persisted session contains only tokenized reasoning text — no raw-PII window in `state.db`.
+
+**Layer 2 — In-Memory Redaction (v1.6.1, defense-in-depth):**
+- The `post_llm_call` hook tokenizes reasoning fields in the `conversation_history` array.
+- Covers late consumers that read history after the intake stage.
+- Reasoning PII is replaced with tokens before it reaches tools/exporters.
+
+### Configuration
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      reasoning_mode: restore  # off | audit | restore (default: restore)
+      reasoning_confidence_threshold: 0.85
+```
+
+**Limitations:** See [`docs/reasoning-protection.md`](docs/reasoning-protection.md) for coverage details and the (resolved) persistence-limitation history.
+
+## Architecture
+
+```
+LLM request with PII
+    ↓
+pre_llm_call() hook
+    ├─ PDF → pdfplumber → text
+    ├─ Image → Tesseract OCR → text
+    └─ Plain text directly
+    ↓
+RegexPIIDetector.scan() — 58 patterns
+    ↓
+Pseudonymizer.replace() — token instead of original
+    ↓
+MappingTable.store() — in-memory + AES-256-GCM
+    ↓
+Provider receives only tokens
+    ↓
+LLM responds with tokens
+    ↓
+post_api_request() hook          ← v1.7.0: before persistence
+    ├─ reasoning fields tokenized on the live message
+    └─ state.db receives only tokenized reasoning
+    ↓
+transform_llm_output() hook
+    ↓
+MappingTable.restore() — token → original
+    ↓
+User sees original data (only in whitelisted channels)
+```
+
+## Security
+
+- **4 review rounds** (independent profiles: research, validation, architecture, operations, memory, system-admin)
+- **820 tests green** (CI: 3.10/3.11/3.12 + lint + mypy strict + security)
+- **0 open CRITICAL/HIGH/MEDIUM findings**
+- **AES-256-GCM** with PBKDF2 100k iterations
+- **Egress whitelist** prevents accidental PII leaks
+- **Bucketed audit log** (SHA-256 hashes instead of plaintext)
+- **EU AI Act PDF export** — one-click compliance report from the audit trail
+- **Memory-bounded caches** (LRU eviction)
+
+See [docs/SECURITY.md](docs/SECURITY.md) for details.
+
+## Audit PDF Export
+
+Generate a tamper-evident EU AI Act / GDPR compliance report from the JSONL audit log. Reports can be rendered as PDF, CSV or JSON and signed with Ed25519.
+
+### CLI
+
+```bash
+# PDF report (unsigned)
+privacy-shield audit-export \
+  --from 2026-08-01 --to 2026-08-31 \
+  --user sha256:deadbeef... \
+  --format pdf \
+  --output report-2026-08.pdf
+
+# Signed PDF (Ed25519 detached signature)
+privacy-shield audit-export \
+  --from 2026-08-01 --to 2026-08-31 \
+  --user sha256:deadbeef... \
+  --format pdf \
+  --sign-with ~/.hermes/keys/audit-signing-key.pem \
+  --output report-2026-08.pdf
+
+# Machine-readable CSV / JSON
+privacy-shield audit-export \
+  --from 2026-08-01 --to 2026-08-31 \
+  --user sha256:deadbeef... \
+  --format csv \
+  --output report-2026-08.csv
+```
+
+### Python API
+
+```python
+from pathlib import Path
+from privacy_shield.audit import AuditExporter
+
+exporter = AuditExporter()
+result = exporter.export(
+    output_path="audit.pdf",
+    time_range=("2026-08-01", "2026-08-31"),
+    sign=True,
+    format="pdf",
+    signing_key_path=Path.home() / ".hermes" / "keys" / "audit-signing-key.pem",
+)
+print(result["output_path"], result["signature"])
+```
+
+### Report contents
+
+- Cover page (period, hashed user identifier, generated timestamp)
+- Summary (total calls, PII detections, blocked actions, mode changes)
+- Token mappings (original hash, token, type, timestamp, session)
+- Audit events with severity and bucketed counts
+- Detection events (block / warn / restore)
+- Mode changes (who changed which mode when)
+- Compliance coverage (GDPR Art. 25, 32, 35; EU AI Act Art. 9, 11, 12, 14)
+- Test status (passed / failed / skipped / coverage)
+- Integrity footer + detached Ed25519 signature (when `--sign-with` is used)
+
+See [docs/eu-ai-act-report.md](docs/eu-ai-act-report.md) for the mapping logic.
+
+## Documentation
+
+- [User Guide](docs/USER-GUIDE.md) — comprehensive guide
+- [Installation](docs/INSTALL.md) — setup + Hermes integration
+- [Security](docs/SECURITY.md) — security properties + threat model
+- [GDPR](docs/dsgvo-mapping.md) — processor agreement + records templates
+- [Reasoning Protection](docs/reasoning-protection.md) — v1.7.0 pre-intake redaction (GB-009 closed)
+- [Changelog](CHANGELOG.md) — version history
+
+## Multi-Profile Setup
+
+Activates Privacy-Shield in all Hermes profiles (idempotent):
+
+```bash
+python3 scripts/setup_profiles.py
+```
+
+## Version Sync
+
+`plugin.yaml` is the single-source-of-truth for the plugin version. `pyproject.toml` and `__init__.py` are synced via `scripts/sync_version.py`:
+
+```bash
+python3 scripts/sync_version.py          # sync to plugin.yaml version
+python3 scripts/sync_version.py --check  # CI gate: exit 1 if drift
+python3 scripts/sync_version.py --set 1.7.0  # bump all three files
+```
+
+## License
+
+MIT License — see [LICENSE](LICENSE).
+
+## Support
+
+- Repository: https://github.com/MOTHR/hermes-privacy-shield
+- Issues: GitHub Issues
+- GDPR questions: docs/AVV-Checkliste.md
+
+---
+
+> **Deutsch:** [README.de.md](README.de.md) — German version

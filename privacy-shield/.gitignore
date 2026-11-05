@@ -1,0 +1,26 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.pytest_cache/
+*.egg-info/
+*.db
+.venv/
+venv/
+.DS_Store
+
+# Privacy-Shield specific
+*.tmp
+review*_test.py
+tmp_*.py
+privacy-shield
+# repo-local import shim: privacy_shield -> . (bridges the underscore package
+# name to the hyphenated repo root when tests run in-place; the deployed
+# ~/.hermes/plugins/privacy_shield symlink does the same job repo-externally)
+/privacy_shield
+review_scripts/
+
+# Runtime audit data leaked via literal '~' path artifact
+~/
+bandit-report*.json
