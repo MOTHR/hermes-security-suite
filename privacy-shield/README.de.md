@@ -1,6 +1,6 @@
 # Privacy-Shield
 
-🌐 [Deutsch](README.de.md) | English
+🌐 Deutsch | [English](README.md)
 
 DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (PII) in sichtbarem LLM-Output und Reasoning-Inhalten.
 
@@ -25,9 +25,9 @@ DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (P
 
 ```bash
 # 1. Installieren (via Git — GitHub-Zugang erforderlich)
-pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.0
+pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
 # oder für Entwicklung mit editierbarem Source
-pip install -e .
+pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt
 
 # 2. Encryption-Key generieren (einmalig)
 python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
@@ -224,7 +224,7 @@ MIT License — siehe [LICENSE](LICENSE).
 
 ## Support
 
-- Repository: https://github.com/MOTHR/hermes-privacy-shield
+- Repository: https://github.com/MOTHR/hermes-security-suite (suite monorepo)
 - Issues: GitHub Issues
 - DSGVO-Fragen: docs/AVV-Checkliste.md
 

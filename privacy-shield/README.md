@@ -25,9 +25,9 @@ DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visibl
 
 ```bash
 # 1. Install (via Git — GitHub access required)
-pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.0
+pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
 # or for development with editable source
-pip install -e .
+pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt
 
 # 2. Generate encryption key (once)
 python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
@@ -52,7 +52,7 @@ Privacy-Shield ships an official desktop plugin so you can tune settings in the 
 - Toggle PDF / Image OCR / cache bypass
 - Run a synthetic restore smoke test
 
-The desktop plugin is bundled in `desktop-plugin/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .`). **No manual copying is required.**
+The desktop plugin is bundled in `desktop-plugin/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). **No manual copying is required.**
 
 The backend lives in `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system at `/api/plugins/privacy-shield/`.
 
@@ -224,7 +224,7 @@ MIT License — see [LICENSE](LICENSE).
 
 ## Support
 
-- Repository: https://github.com/MOTHR/hermes-privacy-shield
+- Repository: https://github.com/MOTHR/hermes-security-suite (suite monorepo)
 - Issues: GitHub Issues
 - GDPR questions: docs/AVV-Checkliste.md
 
