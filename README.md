@@ -4,7 +4,7 @@
 
 **Security Suite for Hermes Agent by MOTHR** — two battle-tested plugins that together cover the two ways an agent leaks data or gets manipulated: **PII in egress traffic** (Privacy-Shield) and **prompt injection through untrusted content** (Injection-Shield).
 
-> **⭐ Featured: Stolen-Thoughts Reasoning Protection** — Privacy-Shield is, to our knowledge, the only Hermes plugin that tokenizes PII inside model *reasoning/thinking blocks* before anything is persisted. Internal thoughts from OpenAI, Anthropic, and Google regularly contain real names, emails, and credentials that never show up in the visible reply — the ["Stolen Thoughts"](https://stolen-thoughts.com) problem (2026). Suite hooks redact them **pre-intake**, so no raw-PII window ever reaches `state.db`. See [Reasoning Protection](#-stolen-thoughts-reasoning-protection).
+> **⭐ Featured: Stolen-Thoughts Reasoning Protection** — Privacy-Shield is, to our knowledge, the only Hermes plugin that tokenizes PII inside model *reasoning/thinking blocks* before anything is persisted. Model reasoning regularly contains real names, emails, and credentials that never show up in the visible reply — the ["Stolen Thoughts"](https://stolen-thoughts.com) problem (2026), and it affects **any cloud provider that surfaces model reasoning**. The redaction is provider-agnostic: it hooks response intake and matches reasoning fields (`reasoning`, `reasoning_content`, `reasoning_details`, Codex reasoning items) regardless of vendor — verified with OpenAI, Anthropic, and Google. Suite hooks redact them **pre-intake**, so no raw-PII window ever reaches `state.db`. See [Reasoning Protection](#-stolen-thoughts-reasoning-protection).
 
 > **⚖️ Why European businesses need this:** In the EU, GDPR and EU AI Act compliance is not a nice-to-have for agents — it is a legal precondition. An agency that sends personal data to cloud LLMs or executes instructions from untrusted content is hard to deploy on real business data under Art. 5/25/32 GDPR and the EU AI Act's transparency and logging obligations. This suite turns a Hermes agent into an agent you can actually put in front of customers and employees: tokenized egress, whitelisted restore, tamper-evident audit trails, and compliance reports you can hand to a DPO or auditor.
 
@@ -53,7 +53,7 @@ Plus: **7 detector layers** (credential-leak and tool-call patterns among them, 
 
 ## ⭐ Stolen-Thoughts Reasoning Protection
 
-Reasoning/thinking blocks from OpenAI, Anthropic and Google can contain real PII and secrets that never appear in the visible output. Privacy-Shield closes that window with two layers:
+Reasoning/thinking blocks can contain real PII and secrets that never appear in the visible output. The "Stolen Thoughts" window is **provider-agnostic** — it opens wherever a provider surfaces model reasoning. Privacy-Shield closes it with two layers:
 
 - **Layer 1 — Pre-intake redaction:** the `post_api_request` hook fires directly after response intake, **before** Hermes persists the turn. Reasoning fields (`reasoning`, `reasoning_content`, `reasoning_details`) are tokenized in-place on the live message → the persisted session contains tokenized reasoning only.
 - **Layer 2 — In-memory redaction:** the `post_llm_call` hook also tokenizes reasoning inside `conversation_history`, so late consumers (tools, exporters) never see raw reasoning PII.
