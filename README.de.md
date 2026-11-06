@@ -6,6 +6,8 @@
 
 > **⭐ Im Fokus: Stolen-Thoughts Reasoning Protection** — Privacy-Shield ist, soweit wir wissen, das einzige Hermes-Plugin, das PII innerhalb von Modell-*Reasoning-/Thinking-Blöcken* tokenisiert, bevor etwas persistiert wird. Interne Gedanken von OpenAI, Anthropic und Google enthalten regelmäßig echte Namen, E-Mails und Credentials, die in der sichtbaren Antwort nie auftauchen — das ["Stolen Thoughts"](https://stolen-thoughts.com)-Problem (2026). Die Suite-Hooks redigieren sie **pre-intake**: kein Raw-PII-Fenster erreicht jemals die `state.db`. Siehe [Reasoning Protection](#-stolen-thoughts-reasoning-protection).
 
+> **⚖️ Warum europäische Unternehmen das brauchen:** In der EU ist DSGVO- und EU-AI-Act-Konformität für Agenten kein Nice-to-have, sondern die Voraussetzung überhaupt: Ein Agent, der personenbezogene Daten an Cloud-LLMs sendet oder Anweisungen aus unvertrauten Inhalten ausführt, lässt sich unter Art. 5/25/32 DSGVO und den Transparenz- und Dokumentationspflichten des EU AI Act kaum mit echten Geschäftsdaten betreiben. Diese Suite macht einen Hermes-Agenten zu einem Agenten, dem man Kunden und Mitarbeitende tatsächlich anvertrauen kann: tokenisierter Egress, whitelisted Restore, manipulationssichere Audit-Trails und Compliance-Reports, die ein DPO oder Auditor akzeptiert.
+
 ## Pakete
 
 | Paket | Schutz gegen | Aktuelle Version |
