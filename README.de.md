@@ -117,7 +117,7 @@ plugins:
 
 ## Security & Qualität
 
-- Unabhängiges Multi-Agent-Security-Audit über beide Pakete; bestätigte Findings behoben, Re-Audit sauber — siehe [SECURITY-AUDIT.md](SECURITY-AUDIT.md)
+- Unabhängiges Multi-Agent-Security-Audit für privacy-shield (Run 1 plus Re-Verifikation der `v1.7.6`, Run 4: keine offenen confirmed Findings); bestätigte Findings behoben, Re-Audit sauber. injection-shield: dreifaches Peer-Review, formales Security-Audit ausstehend — siehe [SECURITY-AUDIT.md](SECURITY-AUDIT.md)
 - Über 1.000 Pytest-Tests in privacy-shield, 410+ in injection-shield; CI auf Python 3.10–3.12 mit Lint und mypy strict
 - Geteilter Token-Format-Vertrag (`TOKEN_<TYP>_<10-Hex>_<Serial>`) zwischen beiden Paketen, Source of Truth im Code
 - Bucketed Audit-Log (SHA-256-Hashes statt Klartext), memory-bounded Caches, durchgehend fail-closed-Defaults

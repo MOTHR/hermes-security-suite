@@ -6,10 +6,23 @@
 
 ## Scope
 
-| Paket | Repository | Auditierte Version |
-|-------|-----------|--------------------|
-| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | Basis `v1.7.3-email-preprocessor`, behoben bis v1.7.6 (Run-4 Re-Verifikation) |
-| injection-shield | MOTHR/hermes-security-suite (`injection-shield/`) | v0.6.0 |
+| Paket | Auditierte Version (Run) | Ausgelieferte Version | Delta / offenes Audit |
+|-------|--------------------------|----------------------|-----------------------|
+| privacy-shield | Basis `v1.7.3-email-preprocessor` (Run 1 Audit), behoben bis `v1.7.6` (Run 4 Re-Verifikation) | 1.8.0 | Delta v1.7.6 → 1.8.0 ohne eigenen Audit-Run; auditierte Quellbasis ist der Run-4-Stand (`v1.7.6`) |
+| injection-shield | v0.6.0 — **kein formaler Audit-Run** (dreifaches Peer-Review) | 0.7.1 | **Formales Multi-Agent-Audit ausstehend** — die ausgelieferte 0.7.1 ist nicht auditiert |
+
+**Run-ID-Zuordnung (Version → Run → Ergebnis):**
+
+| Version | Run-ID | Ergebnis | GO/NOGO |
+|---------|--------|----------|---------|
+| privacy-shield `v1.7.3-email-preprocessor` (Audit + Re-Audit) | `privacy-shield-run-1` | 15 confirmed Findings, sämtliche HIGH behoben; Re-Audit ohne neue Findings ≥ MEDIUM | GO |
+| privacy-shield `v1.7.6` (Re-Verifikation der Run-1-Fingerprints) | `privacy-shield-run-4` | 0 confirmed Findings; 4/4 Run-1-HIGH bestätigt geschlossen | **GO** |
+| privacy-shield `1.8.0` (ausgeliefert) | kein eigener Run | Release-/Packaging-Stand auf Run-4-Quellbasis (`v1.7.6`); Delta als solches gekennzeichnet | Delta (kein eigener Audit-Run) |
+| privacy-shield Run 2 / Run 3 | `privacy-shield-run-2` / Run-3-Ledger | Ledger-Belege im Artefaktverzeichnis (siehe Run-4-Sektion) | belegt, Details in Ledgern |
+| injection-shield `v0.6.0` | kein eigener Run | Dreifaches Peer-Review (Konsistenz/Integrität, Standards/Spec, Bug-Hunt/Security), 410+ Tests | Peer-Review, kein Audit |
+| injection-shield `0.7.1` (ausgeliefert) | kein eigener Run | Delta 0.6.0 → 0.7.1 (Desktop-Paket-Pfad, Manifest-Felder, Lizenz-/Policy-Dateien) | **nicht auditiert — formales Audit ausstehend** (NOGO = keine Audit-Aussage möglich, Peer-Review-Status gilt) |
+
+> **Kurzlektüre:** Was in dieser Suite als „auditiert" bezeichnet werden darf, ist ausschließlich der privacy-shield-Quellstand `v1.7.6` (Run 4, GO) samt Vorgängern Run 1. Die ausgelieferten Paketversionen 1.8.0 (privacy-shield) und 0.7.1 (injection-shield) sind **nicht Gegenstand eines formalen Audits**; für injection-shield steht das formale Multi-Agent-Audit aus.
 
 ---
 
@@ -115,7 +128,7 @@ Das Follow-up-Audit gegen den gefixten Branch bestätigte **keine neuen confirme
 
 ## injection-shield — Audit-Status
 
-Das formale Multi-Agent-Security-Audit nach dem privacy-shield-Muster ist ausstehend. Aktueller Status: aktive Entwicklung, dreifaches Peer-Review (Konsistenz/Integrität, Standards/Spec, Bug-Hunt/Security) der v0.6.0 und Regressionssuite 410+ Tests.
+Das formale Multi-Agent-Security-Audit nach dem privacy-shield-Muster ist **ausstehend**. Aktueller Status: aktive Entwicklung, dreifaches Peer-Review (Konsistenz/Integrität, Standards/Spec, Bug-Hunt/Security) der **v0.6.0** und Regressionssuite 410+ Tests. **Ausgeliefert wird v0.7.1; dieses Delta (Desktop-Paket-Pfad, Manifest-Felder, Lizenz-/Policy-Dateien) ist von keinem formalen Audit gedeckt** — für `injection-shield 0.7.1` wird daher keine Audit-Markierung erhoben.
 
 ---
 
@@ -154,10 +167,23 @@ Bitte keine öffentlichen Issues für Sicherheitslücken. Kontaktiere das MOTHR-
 
 ## Scope
 
-| Package | Repository | Version Audited |
-|---------|-----------|----------------|
-| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | basis `v1.7.3-email-preprocessor`, fixed through v1.7.6 (Run-4 re-verification) |
-| injection-shield | MOTHR/hermes-security-suite (`injection-shield/`) | v0.6.0 |
+| Package | Version audited (run) | Version delivered | Delta / open audit |
+|---------|----------------------|------------------|--------------------|
+| privacy-shield | basis `v1.7.3-email-preprocessor` (Run 1 audit), fixed through `v1.7.6` (Run 4 re-verification) | 1.8.0 | delta v1.7.6 → 1.8.0 without a dedicated audit run; the audited source basis is the Run-4 state (`v1.7.6`) |
+| injection-shield | v0.6.0 — **no formal audit run** (triple peer review) | 0.7.1 | **formal multi-agent audit pending** — the delivered 0.7.1 is not audited |
+
+**Run-ID mapping (version → run → result):**
+
+| Version | Run ID | Result | GO/NOGO |
+|---------|--------|--------|---------|
+| privacy-shield `v1.7.3-email-preprocessor` (audit + re-audit) | `privacy-shield-run-1` | 15 confirmed findings, all HIGH fixed; re-audit found no new findings at MEDIUM or above | GO |
+| privacy-shield `v1.7.6` (re-verification of the Run-1 fingerprints) | `privacy-shield-run-4` | 0 confirmed findings; 4/4 Run-1 HIGH confirmed closed | **GO** |
+| privacy-shield `1.8.0` (delivered) | no dedicated run | release/packaging state on the Run-4 source basis (`v1.7.6`); delta labeled as such | delta (no dedicated audit run) |
+| privacy-shield Run 2 / Run 3 | `privacy-shield-run-2` / Run-3 ledger | ledger evidence in the artifacts listing (see Run-4 section) | evidenced, details in ledgers |
+| injection-shield `v0.6.0` | no dedicated run | triple peer review (consistency/integrity, standards/spec, bug-hunt/security), 410+ tests | peer review, not an audit |
+| injection-shield `0.7.1` (delivered) | no dedicated run | delta 0.6.0 → 0.7.1 (desktop package path, manifest fields, license/policy files) | **not audited — formal audit pending** (NOGO = no audit statement possible; peer-review status applies) |
+
+> **TL;DR:** The only thing this suite may call "audited" is the privacy-shield source state `v1.7.6` (Run 4, GO) together with its Run-1 predecessors. The delivered package versions 1.8.0 (privacy-shield) and 0.7.1 (injection-shield) are **not the subject of a formal audit**; for injection-shield the formal multi-agent audit is pending.
 
 ---
 
@@ -263,7 +289,7 @@ Follow-up audit against the fixed branch confirmed **no new confirmed findings a
 
 ## injection-shield — Audit Status
 
-The formal multi-agent security audit (same pattern as privacy-shield) is pending. Current status: active development, triple peer review (consistency/integrity, standards/spec, bug-hunt/security) of v0.6.0, regression suite 410+ tests.
+The formal multi-agent security audit (same pattern as privacy-shield) is **pending**. Current status: active development, triple peer review (consistency/integrity, standards/spec, bug-hunt/security) of **v0.6.0**, regression suite 410+ tests. **The delivered version is 0.7.1; that delta (desktop package path, manifest fields, license/policy files) is not covered by any formal audit** — no audit claim is therefore made for `injection-shield 0.7.1`.
 
 ---
 

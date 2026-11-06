@@ -25,7 +25,7 @@ DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visibl
 
 ```bash
 # 1. Install (via Git — GitHub access required)
-pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.6
+pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
 # or for development with editable source
 pip install -e .
 
@@ -266,7 +266,7 @@ python3 scripts/setup_profiles.py
 ```bash
 python3 scripts/sync_version.py          # sync to plugin.yaml version
 python3 scripts/sync_version.py --check  # CI gate: exit 1 if drift
-python3 scripts/sync_version.py --set 1.7.6  # bump all three files
+python3 scripts/sync_version.py --set 1.8.0  # bump all three files
 ```
 
 ## License
