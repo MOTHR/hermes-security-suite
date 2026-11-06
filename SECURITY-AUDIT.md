@@ -8,7 +8,7 @@
 
 | Paket | Repository | Auditierte Version |
 |-------|-----------|--------------------|
-| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | Basis `v1.7.3-email-preprocessor`, behoben bis v1.7.5 |
+| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | Basis `v1.7.3-email-preprocessor`, behoben bis v1.7.6 (Run-4 Re-Verifikation) |
 | injection-shield | MOTHR/hermes-security-suite (`injection-shield/`) | v0.6.0 |
 
 ---
@@ -75,6 +75,44 @@ Das Follow-up-Audit gegen den gefixten Branch bestätigte **keine neuen confirme
 
 ---
 
+## privacy-shield — Run 4 Re-Verifikation (v1.7.6)
+
+**Run-ID**: privacy-shield-run-4
+**Source-Ref**: `feature/v1.7.6-restore-splice` @ `06788702f28fd4d1fd71f92def99e52336b10e39` (Merge-Kandidat, PR #26, Merge-Commit `b387d70ffe51345d8b62739d5fa322c9aa0b90aa`)
+**Methodik**: Cloudflare `security-audit`-Skill (6 Phasen, adversarial Verifier) — Audit: seraph; anschließend unabhängige adversariale Verifikation durch eine zweite Agent-Instanz
+**Datum**: 2026-11-06
+
+### Ergebnis
+
+| Metrik | Wert |
+|--------|------|
+| Confirmed Findings | 0 |
+| Offen confirmed ≥ MEDIUM | 0 |
+| Rejected (behoben/mitigiert) | 18 |
+| Coverage-Units | 12 |
+| Test-Suite | 1066 passed, 7 skipped, 0 failed |
+| Validator findings.json | PASS (exit 0) |
+| Validator coverage-ledger.json | PASS (exit 0) |
+
+### Details
+
+- **Run-1 HIGH-Fingerprints (4/4 bestätigt geschlossen):** `PS-CONF-002` (NaN-Confidence-Bypass, `math.isfinite()` + Range-Guard), `PS-EMAIL-001` (HTML-Attribut-Injection, `html.escape` mit `quote=True`), `PS-EMAIL-002` (Gefährliche URL-Schemes, `ALLOWED_URL_SCHEMES`-Allowlist), `PS-EMAIL-004` (Path-Traversal/Symlink-Race, `_lstat_chmod` + `islink`-Check) — alle per Quell-Re-Verifikation und Regressionstests geschlossen.
+- **Finding 3f (`PS-V176-3F`) adversarial bestätigt mitigiert:** Der token_serial wird pro Kandidaten-Row aus dem eigenen `token_encrypted` neu abgeleitet; bei Mismatch wird die Row repariert und vom Restore ausgeschlossen. Adversarialer PoC (attacker-manipulated serial) PASS — Angreifer-Ziel wird nicht zurückgegeben, Session-Scoping, Uniqueness-Contract und Fail-Closed-Truncation verifiziert.
+- **v1.7.6-Log-Level-Fixes:** restore-miss (7d) und Residual-Pass-Summary (7g) loggen jetzt `logger.warning`.
+- **11 Run-3-Findings** (Ledger: Run-1 + Run-2 + Run-3-Ledger) revalidiert — alle geschlossen.
+- **Unabhängige Verifikation:** alle 5 Prüfbereiche PASS (3f-PoC, 4 Run-1-HIGH, beide Validatoren, Teststand, Delta-Scope) — GO-Empfehlung bestätigt.
+
+### Artefakte & Verweise
+
+- **Run-4:** `security-audits/privacy-shield-run-4/` (REPORT.md, findings.json, coverage-ledger.json, run-metadata.json, poc_3f_mitigation.py, verification-agent-smith.md)
+- **Run-1 / Run-2:** `.../security-audits/privacy-shield-run-1/`, `.../security-audits/privacy-shield-run-2/`
+- **Run-3 Ledger:** Second-Brain `06-Reports/20261029-Privacy-Shield-Re-Audit-Run3-Coverage-Ledger.md`
+- **PR #26** (v1.7.6); Release-Gate: Kanban-Karte `t_804a1c41`
+
+**Empfehlung: GO** — keine offenen confirmed Findings ≥ MEDIUM; bereit für Live-Rollout.
+
+---
+
 ## injection-shield — Audit-Status
 
 Das formale Multi-Agent-Security-Audit nach dem privacy-shield-Muster ist ausstehend. Aktueller Status: aktive Entwicklung, dreifaches Peer-Review (Konsistenz/Integrität, Standards/Spec, Bug-Hunt/Security) der v0.6.0 und Regressionssuite 410+ Tests.
@@ -118,7 +156,7 @@ Bitte keine öffentlichen Issues für Sicherheitslücken. Kontaktiere das MOTHR-
 
 | Package | Repository | Version Audited |
 |---------|-----------|----------------|
-| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | basis `v1.7.3-email-preprocessor`, fixed through v1.7.5 |
+| privacy-shield | MOTHR/hermes-security-suite (`privacy-shield/`) | basis `v1.7.3-email-preprocessor`, fixed through v1.7.6 (Run-4 re-verification) |
 | injection-shield | MOTHR/hermes-security-suite (`injection-shield/`) | v0.6.0 |
 
 ---
@@ -182,6 +220,44 @@ Follow-up audit against the fixed branch confirmed **no new confirmed findings a
 - Add type validation for `mime_type` before `.lower()` in `_filter_attachments`
 - `_build_mapper` should fail closed (raise `RuntimeError`) when disk mode is requested without an encryption key
 - Consider removing the negative lookbehind from the token regex to ensure tokens are always masked regardless of surrounding context
+
+---
+
+## privacy-shield — Run 4 Re-Verification (v1.7.6)
+
+**Run ID**: privacy-shield-run-4
+**Source Ref**: `feature/v1.7.6-restore-splice` @ `06788702f28fd4d1fd71f92def99e52336b10e39` (merge candidate, PR #26, merge commit `b387d70ffe51345d8b62739d5fa322c9aa0b90aa`)
+**Methodology**: Cloudflare `security-audit` skill (6 phases, adversarial verifier) — audit: seraph; followed by independent adversarial verification from a second agent instance
+**Date**: 2026-11-06
+
+### Result
+
+| Metric | Value |
+|--------|-------|
+| Confirmed findings | 0 |
+| Open confirmed ≥ medium | 0 |
+| Rejected (fixed/mitigated) | 18 |
+| Coverage units | 12 |
+| Test suite | 1066 passed, 7 skipped, 0 failed |
+| Validator findings.json | PASS (exit 0) |
+| Validator coverage-ledger.json | PASS (exit 0) |
+
+### Details
+
+- **Run-1 HIGH fingerprints (4/4 confirmed closed):** `PS-CONF-002` (NaN confidence bypass, `math.isfinite()` + range guard), `PS-EMAIL-001` (HTML attribute injection, `html.escape` with `quote=True`), `PS-EMAIL-002` (dangerous URL schemes, `ALLOWED_URL_SCHEMES` allowlist), `PS-EMAIL-004` (path traversal/symlink race, `_lstat_chmod` + `islink` check) — all closed via source re-verification and regression tests.
+- **Finding 3f (`PS-V176-3F`) confirmed mitigated adversarially:** the token_serial is re-derived per candidate row from its own `token_encrypted`; on mismatch the row is repaired and excluded from restoration. Adversarial PoC (attacker-manipulated serial) PASS — attacker's chosen original is not returned; session scoping, uniqueness contract, and fail-closed truncation verified.
+- **v1.7.6 log-level fixes:** restore-miss (7d) and residual pass summary (7g) now log via `logger.warning`.
+- **11 Run-3 findings** (ledger: Run-1 + Run-2 + Run-3 ledger) revalidated — all closed.
+- **Independent verification:** all 5 verification areas PASS (3f PoC, 4 Run-1 HIGH, both validators, test stand, delta scope) — GO recommendation confirmed.
+
+### Artifacts & References
+
+- **Run 4:** `security-audits/privacy-shield-run-4/` (REPORT.md, findings.json, coverage-ledger.json, run-metadata.json, poc_3f_mitigation.py, verification-agent-smith.md)
+- **Run 1 / Run 2:** `.../security-audits/privacy-shield-run-1/`, `.../security-audits/privacy-shield-run-2/`
+- **Run 3 ledger:** Second Brain `06-Reports/20261029-Privacy-Shield-Re-Audit-Run3-Coverage-Ledger.md`
+- **PR #26** (v1.7.6); release gate: Kanban card `t_804a1c41`
+
+**Recommended: GO** — no open confirmed findings at medium or above; ready for live rollout.
 
 ---
 
