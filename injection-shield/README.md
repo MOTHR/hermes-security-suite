@@ -43,7 +43,7 @@ the Hermes Desktop app instead of editing YAML:
 - Adjust audit log rotation and retention
 - Run a synthetic injection-detector smoke test
 
-The desktop plugin is bundled in `desktop-plugin/` and automatically copied to
+The desktop plugin is bundled in `desktop/` and automatically copied to
 `~/.hermes/desktop-plugins/injection-shield-controls/` when the package is
 installed (`pip install` or `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). The backend lives in
 `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system

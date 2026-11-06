@@ -1,0 +1,10 @@
+{
+  "name": "injection-shield",
+  "label": "Injection-Shield",
+  "description": "Prompt-injection defense for Hermes. Backend config API for the Injection-Shield Controls desktop pane (mode, severity threshold, detector toggles, detector-test).",
+  "icon": "Shield",
+  "version": "0.6.0",
+  "tab": { "hidden": true },
+  "entry": "dist/index.js",
+  "api": "plugin_api.py"
+}

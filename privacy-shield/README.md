@@ -52,7 +52,7 @@ Privacy-Shield ships an official desktop plugin so you can tune settings in the 
 - Toggle PDF / Image OCR / cache bypass
 - Run a synthetic restore smoke test
 
-The desktop plugin is bundled in `desktop-plugin/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). **No manual copying is required.**
+The desktop plugin is bundled in `desktop/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). **No manual copying is required.**
 
 The backend lives in `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system at `/api/plugins/privacy-shield/`.
 

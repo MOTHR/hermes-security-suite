@@ -31,12 +31,12 @@ anzupassen, ohne YAML zu bearbeiten.
 
 - **Backend**: `dashboard/plugin_api.py` exportiert einen `fastapi.APIRouter`.
   Hermes mounted ihn unter `/api/plugins/injection-shield/`.
-- **Frontend**: `desktop-plugin/plugin.js` ist eine einzelne ESM-Datei, geladen
+- **Frontend**: `desktop/plugin.js` ist eine einzelne ESM-Datei, geladen
   von der Hermes-Desktop-App. Es nutzt `ctx.rest()` für die Kommunikation mit dem Backend.
 - **Persistenz**: `POST /config` schreibt Overrides nach
   `~/.hermes/config.yaml` unter `plugins.entries.injection-shield`.
   `config.load_config()` merge diese Overrides beim Plugin-Start.
-- **Bundling**: `setup.py` kopiert `desktop-plugin/` nach
+- **Bundling**: `setup.py` kopiert `desktop/` nach
   `~/.hermes/desktop-plugins/injection-shield-controls/` während
   `pip install` / `pip install -e .`.
 
@@ -98,12 +98,12 @@ Injection-Shield without editing YAML.
 
 - **Backend**: `dashboard/plugin_api.py` exports a `fastapi.APIRouter`.
   Hermes mounts it under `/api/plugins/injection-shield/`.
-- **Frontend**: `desktop-plugin/plugin.js` is a single-file ESM loaded by
+- **Frontend**: `desktop/plugin.js` is a single-file ESM loaded by
   the Hermes Desktop app. It uses `ctx.rest()` to talk to the backend.
 - **Persistence**: `POST /config` writes overrides to
   `~/.hermes/config.yaml` under `plugins.entries.injection-shield`.
   `config.load_config()` merges those overrides on plugin startup.
-- **Bundling**: `setup.py` copies `desktop-plugin/` into
+- **Bundling**: `setup.py` copies `desktop/` into
   `~/.hermes/desktop-plugins/injection-shield-controls/` during
   `pip install` / `pip install -e .`.
 

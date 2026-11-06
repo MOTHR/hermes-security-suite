@@ -117,7 +117,7 @@ def test_detector_test_clean_text(client):
 def test_frontend_file_is_readable():
     """Sanity check that the bundled desktop plugin file exists and is valid UTF-8."""
     repo = Path(__file__).resolve().parent.parent
-    js_path = repo / "desktop-plugin" / "plugin.js"
+    js_path = repo / "desktop" / "plugin.js"
     assert js_path.exists()
     text = js_path.read_text(encoding="utf-8")
     assert text.strip().endswith("};")

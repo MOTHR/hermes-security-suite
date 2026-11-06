@@ -34,5 +34,7 @@ jobs:
               pip install -q -e "$pkg"[test] 2>/dev/null || pip install -q -e "$pkg" 2>/dev/null || true
             fi
           done
-          pytest tests/ --tb=short -q 2>/dev/null || true
+          for pkg in privacy-shield injection-shield; do
+            (cd "$pkg" && pytest tests/ --tb=short -q 2>/dev/null) || true
+          done
         continue-on-error: true

@@ -1,3 +1,3 @@
 include plugin.yaml
 recursive-include dashboard *
-recursive-include desktop-plugin *
+recursive-include desktop *

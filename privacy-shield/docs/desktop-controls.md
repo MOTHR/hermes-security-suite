@@ -35,12 +35,12 @@ mit der sich Privacy-Shield anpassen lässt, ohne YAML zu bearbeiten.
 
 - **Backend**: `dashboard/plugin_api.py` exportiert einen `fastapi.APIRouter`.
   Hermes bindet ihn unter `/api/plugins/privacy-shield/` ein.
-- **Frontend**: `desktop-plugin/plugin.js` ist ein Single-File-ESM, das die
+- **Frontend**: `desktop/plugin.js` ist ein Single-File-ESM, das die
   Hermes Desktop App lädt. Es kommuniziert über `ctx.rest()` mit dem Backend.
 - **Persistenz**: `POST /config` schreibt Overrides in
   `~/.hermes/config.yaml` unter `plugins.entries.privacy-shield`.
   `config.load_config()` merged diese Overrides beim Plugin-Start.
-- **Bundling**: `setup.py` kopiert `desktop-plugin/` während
+- **Bundling**: `setup.py` kopiert `desktop/` während
   `pip install` / `pip install -e .` nach
   `~/.hermes/desktop-plugins/privacy-shield-controls/`.
 
@@ -86,12 +86,12 @@ Privacy-Shield without editing YAML.
 
 - **Backend**: `dashboard/plugin_api.py` exports a `fastapi.APIRouter`.
   Hermes mounts it under `/api/plugins/privacy-shield/`.
-- **Frontend**: `desktop-plugin/plugin.js` is a single-file ESM loaded by
+- **Frontend**: `desktop/plugin.js` is a single-file ESM loaded by
   the Hermes Desktop app. It uses `ctx.rest()` to talk to the backend.
 - **Persistence**: `POST /config` writes overrides to
   `~/.hermes/config.yaml` under `plugins.entries.privacy-shield`.
   `config.load_config()` merges those overrides on plugin startup.
-- **Bundling**: `setup.py` copies `desktop-plugin/` into
+- **Bundling**: `setup.py` copies `desktop/` into
   `~/.hermes/desktop-plugins/privacy-shield-controls/` during
   `pip install` / `pip install -e .`.
 

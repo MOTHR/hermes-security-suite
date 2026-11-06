@@ -52,7 +52,7 @@ Privacy-Shield wird mit einem offiziellen Desktop-Plugin ausgeliefert, über das
 - PDF / Bild-OCR / Cache-Bypass toggeln
 - Synthetischen Restore-Smoke-Test ausführen
 
-Das Desktop-Plugin liegt unter `desktop-plugin/` und wird bei `pip install` automatisch nach `~/.hermes/desktop-plugins/privacy-shield-controls/` kopiert. **Kein manuelles Kopieren nötig.**
+Das Desktop-Plugin liegt unter `desktop/` und wird bei `pip install` automatisch nach `~/.hermes/desktop-plugins/privacy-shield-controls/` kopiert. **Kein manuelles Kopieren nötig.**
 
 Das Backend ist in `dashboard/plugin_api.py` und wird vom Hermes Dashboard-Plugin-System unter `/api/plugins/privacy-shield/` gemountet.
 

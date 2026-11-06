@@ -40,7 +40,7 @@ in der Hermes-Desktop-App ändern kannst, statt YAML zu bearbeiten:
 - Audit-Log-Rotation und -Aufbewahrung anpassen
 - Synthetischen Injection-Detektor-Smoke-Test ausführen
 
-Das Desktop-Plugin ist in `desktop-plugin/` gebündelt und wird automatisch nach
+Das Desktop-Plugin ist in `desktop/` gebündelt und wird automatisch nach
 `~/.hermes/desktop-plugins/injection-shield-controls/` kopiert, wenn das Paket
 installiert wird (`pip install` oder `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). Das Backend lebt in
 `dashboard/plugin_api.py` und wird vom Hermes-Dashboard-Plugin-System unter

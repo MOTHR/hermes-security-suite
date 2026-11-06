@@ -157,7 +157,7 @@ Commands:
 
 Seit v1.5.0 wird Privacy-Shield zusammen mit einem offiziellen Desktop-Plugin
 ausgeliefert. Beim Installieren des Pakets (`pip install` oder `pip install -e .`)
-wird `desktop-plugin/` automatisch nach
+wird `desktop/` automatisch nach
 `~/.hermes/desktop-plugins/privacy-shield-controls/` kopiert — es ist **nichts
 manuell zu kopieren**.
 
@@ -589,7 +589,7 @@ Commands:
 ## 3. Desktop-Controls
 
 Since v1.5.0, Privacy-Shield ships together with an official desktop plugin.
-When installing the package (`pip install` or `pip install -e .`), `desktop-plugin/`
+When installing the package (`pip install` or `pip install -e .`), `desktop/`
 is automatically copied to
 `~/.hermes/desktop-plugins/privacy-shield-controls/` — **nothing
 needs to be manually copied**.
