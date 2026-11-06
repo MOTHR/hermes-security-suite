@@ -2,51 +2,134 @@
 
 🌐 Deutsch | [English](README.md)
 
-Security-Plugins für Hermes Agent von MOTHR: Datenschutz und Prompt-Injection-Abwehr für die Telegram-, Desktop- und CLI-Oberflächen des Agents.
+**Security Suite für Hermes Agent von MOTHR** — zwei erprobte Plugins, die zusammen die zwei Wege abdecken, auf denen ein Agent Daten verliert oder manipuliert wird: **PII im Ausgangsverkehr** (Privacy-Shield) und **Prompt-Injection über unvertraute Inhalte** (Injection-Shield).
+
+> **⭐ Im Fokus: Stolen-Thoughts Reasoning Protection** — Privacy-Shield ist, soweit wir wissen, das einzige Hermes-Plugin, das PII innerhalb von Modell-*Reasoning-/Thinking-Blöcken* tokenisiert, bevor etwas persistiert wird. Interne Gedanken von OpenAI, Anthropic und Google enthalten regelmäßig echte Namen, E-Mails und Credentials, die in der sichtbaren Antwort nie auftauchen — das ["Stolen Thoughts"](https://stolen-thoughts.com)-Problem (2026). Die Suite-Hooks redigieren sie **pre-intake**: kein Raw-PII-Fenster erreicht jemals die `state.db`. Siehe [Reasoning Protection](#-stolen-thoughts-reasoning-protection).
 
 ## Pakete
 
-### [privacy-shield](privacy-shield/README.de.md)
+| Paket | Schutz gegen | Aktuelle Version |
+|---|---|---|
+| [privacy-shield](privacy-shield/README.de.md) | PII-Egress: Namen, E-Mails, Telefonnummern, IBANs, Krypto-Wallets, Tokens leak in LLM-Verkehr, Reasoning-Blöcke, PDFs und Screenshots | **1.7.6** |
+| [injection-shield](injection-shield/README.de.md) | Prompt-Injection: bösartige Anweisungen in Webseiten, Tool-Ergebnissen und LLM-Antworten | **0.6.0** |
 
-**DSGVO-konformer PII-Tokenizer.** Maskiert personenbezogene Daten (Namen, E-Mails, Telefonnummern, Credentials, IBANs, Adressen) in allem, was der Agent an einen Nutzer sendet — Telegram, Desktop, CLI — und stellt die Originalwerte deterministisch wieder her: session-gebunden und fail-closed.
+## Was die Pakete tun
 
-- AES-256-GCM-Mapping-Store (PBKDF2, 600k Iterationen), Key optional — ohne Key degradiert das Plugin kontrolliert auf Masking-only
-- Restore-Miss-Placeholder: nicht auflösbare Tokens leaken nie, sie werden zu `[maskiertes PII]`
-- Session-Fuzzed-Restore für vom Modell kopierte Token-Varianten (nur gleiche Session, gleicher Typ+Serial)
-- Desktop-Controls-Pane, PDF/OCR-Vorverarbeitung, Size-Guardrails für Anhänge
+### [privacy-shield](privacy-shield/README.de.md) — DSGVO-konformer PII-Tokenizer
 
-### [injection-shield](injection-shield/README.de.md)
+Ersetzt personenbezogene Daten durch deterministische Tokens (`TOKEN_EMAIL_a3f8b2c41d_003`), bevor der Provider sie sieht, und stellt Originalwerte **nur** in kanalisierst du freigegebenen Kanälen wieder her. Fail-closed: Nichts Unauflösbares degradiert zu `[maskiertes PII]`, nie zu Klartext.
 
-**Defense-in-Depth gegen Prompt-Injection.** Verpackt unvertraute Tool-Ergebnisse, prüft LLM-Ausgaben und auditiert riskante Tool-Calls.
+**Erkennung & Verarbeitung**
+- **58 Detektion-Patterns** in 7 Kategorien: E-Mail, Telefon, IBAN, Krypto-Wallets, JWT/OAuth-Tokens, GitHub-PATs, MAC/IMEI/IMSI und mehr
+- **Text, Markdown und Code** in einer Pipeline
+- **PDF-Pipeline** — Textextraktion (pdfplumber), Tokenisierung, bereinigtes PDF als Ergebnis
+- **Image-OCR** — JPG/PNG/HEIC/WebP/TIFF/BMP via Tesseract, mehrsprachig (deu+eng als Standard)
+- **Unicode-Normalisierung** (NFKC + Homoglyph-Mapping), damit Lookalike-Zeichen nicht durchrutschen
+- Cache-Bypass-Tag für lokale Lesevorgänge — lokale Daten werden nicht maskiert, da sie die Maschine nie verlassen
 
-- 4 Layer: Content-Tagging (`post_tool_call`), Anti-Injection-Firewall (`pre_llm_call`), Output-Validierung (`post_llm_call`), Risky-Tool-Audit (`pre_tool_call`)
-- 7 Detector-Layer inkl. Credential-Leak- und Tool-Call-Patterns, 410+ Tests
-- Desktop-Controls-Pane, Telegram-Alerts mit Severity-Gate und Rate-Limiting
-- Teilt den Token-Format-Vertrag mit privacy-shield
+**Mapping-Sicherheit & Restore**
+- **AES-256-GCM**-verschlüsselter Mapping-Store mit **PBKDF2 (600k Iterationen)**
+- **Restore-Miss-Placeholder** — nicht auflösbare Tokens degradieren zu `[maskiertes PII]` mit `restore_miss`-Metric; sie leaken nie
+- **Session-Fuzzed-Restore** — repariert vom Modell kopierte Token-Varianten (nur gleiche Session, gleicher Typ+Serial; Serial wird aus dem verschlüsselten Inhalt neu abgeleitet, manipulierte Rows werden ausgeschlossen)
+- **Egress-Whitelist** — Restore nur in freigegebenen Kanälen (z. B. deiner Telegram-Chat-ID); alles andere bleibt maskiert
+
+**Betrieb**
+- Fünf Modi: `off / audit / limited / strict / paranoid`
+- Provider-Erkennung: Ollama-lokaler Verkehr umgeht den Shield (kein Cloud-Egress = nichts zu schützen)
+- Desktop-Controls-Pane: Modus, Confidence-Schwellwert, Restore-Kanäle, PDF/OCR-Schalter, Restore-Smoke-Test
+
+### [injection-shield](injection-shield/README.de.md) — Defense-in-Depth gegen Prompt-Injection
+
+Vier Hooks um jeden Hermes-Turn:
+
+1. **Content-Tagging** (`post_tool_call`) — verpackt `web_extract`, `web_search` und MCP-Ergebnisse in `<untrusted_tool_result>`-Tags, damit das Modell Inhalte als Daten behandelt, nicht als Anweisungen
+2. **Anti-Injection-Firewall** (`pre_llm_call`) — System-Prompt-Firewall gegen injizierte Direktiven
+3. **Output-Validierung** (`post_llm_call`) — scannt Antworten auf Credential-Leaks und Nutzer-Direktiven; blockiert im `enforcement`-Modus
+4. **Risky-Tool-Audit** (`pre_tool_call`) — prüft Aufrufe von `terminal`/`write_file` auf Injection-Patterns vor der Ausführung
+
+Dazu: **7 Detector-Layer** (darunter Credential-Leak- und Tool-Call-Patterns, 410+ Tests), Telegram-Alerts mit Severity-Gate und Rate-Limiting, Audit-Log mit Rotation und Retention, Allowed-Domains-Liste und eine Desktop-Controls-Pane (`audit`/`enforcement`-Schalter, Detector-Kategorien, Smoke-Test).
+
+## ⭐ Stolen-Thoughts Reasoning Protection
+
+Reasoning-/Thinking-Blöcke von OpenAI, Anthropic und Google können echte PII und Secrets enthalten, die in der sichtbaren Ausgabe nie erscheinen. Privacy-Shield schließt dieses Fenster mit zwei Layern:
+
+- **Layer 1 — Pre-Intake-Redaktion:** der `post_api_request`-Hook feuert direkt nach dem Response-Intake, **bevor** Hermes den Turn persistiert. Reasoning-Felder (`reasoning`, `reasoning_content`, `reasoning_details`) werden in-place auf der Live-Message tokenisiert → die persistierte Session enthält ausschließlich tokenisiertes Reasoning.
+- **Layer 2 — In-Memory-Redaktion:** der `post_llm_call`-Hook tokenisiert Reasoning zusätzlich innerhalb der `conversation_history`, damit späte Konsumenten (Tools, Exporter) niemals Raw-Reasoning-PII sehen.
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      reasoning_mode: restore    # off | audit | restore (Standard: restore)
+      reasoning_confidence_threshold: 0.85
+```
+
+Details und Abdeckung: [`privacy-shield/docs/reasoning-protection.md`](privacy-shield/docs/reasoning-protection.md).
 
 ## Installation
 
-Jedes Paket installiert Agent-Hooks **und** seine Desktop-Controls-Pane in einem Schritt:
+Jedes Paket installiert Agent-Hooks **und** seine Desktop-Controls-Pane in einem Schritt (Unified Package — die Hermes-Desktop-App kopiert den Desktop-Anteil automatisch):
 
 ```bash
-# aus dem Suite-Root
+# Suite-Checkout, editable
 pip install -e ./privacy-shield
 pip install -e ./injection-shield
-```
 
-Oder direkt von GitHub:
-
-```bash
+# oder direkt von GitHub (Python ≥ 3.10)
 pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
 pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=injection-shield
 ```
 
-Die Desktop-Controls übernimmt die Hermes-Desktop-App automatisch (unified-package Desktop-Anteil).
+Verifizieren:
 
-## Security-Audits
+```bash
+privacy-shield scan "Kontakt: alice@example.com"
+injection-shield --version
+hermes plugins validate
+```
 
-Beide Pakete sind durch ein unabhängiges Multi-Agent-Security-Audit gegangen (confirmed Findings behoben, Re-Audit sauber, kein offenes HIGH). Siehe [SECURITY-AUDIT.md](SECURITY-AUDIT.md).
+## Konfiguration (Kurzform)
 
-## Security-Meldungen
+```yaml
+plugins:
+  enabled:
+    - privacy-shield
+    - injection-shield
+  entries:
+    privacy-shield:
+      mode: strict
+      restore_allowed_channels:
+        - telegram:DEINE_CHAT_ID   # Tokens restore nur hier
+    injection-shield:
+      mode: audit                  # erst 24 h audit, dann enforcement
+      allowed_domains: [api.openai.com, api.anthropic.com, ollama.com]
+      telegram:
+        enabled: true
+        min_severity: medium
+```
 
-Bitte keine öffentlichen Issues für Schwachstellen. Kontaktiere das MOTHR-Security-Team direkt.
+## Compliance & Reporting
+
+- DSGVO out of the box: AVV-Checkliste und Verzeichnis-Vorlage ([`privacy-shield/docs/dsgvo-mapping.md`](privacy-shield/docs/dsgvo-mapping.md))
+- EU-AI-Act-/DSGVO-Compliance-Report aus dem Audit-Trail — PDF/CSV/JSON, Ed25519-signiert, ein Befehl: `privacy-shield audit-export --from 2026-08-01 --to 2026-08-31 --format pdf`
+
+## Security & Qualität
+
+- Unabhängiges Multi-Agent-Security-Audit über beide Pakete; bestätigte Findings behoben, Re-Audit sauber — siehe [SECURITY-AUDIT.md](SECURITY-AUDIT.md)
+- Über 1.000 Pytest-Tests in privacy-shield, 410+ in injection-shield; CI auf Python 3.10–3.12 mit Lint und mypy strict
+- Geteilter Token-Format-Vertrag (`TOKEN_<TYP>_<10-Hex>_<Serial>`) zwischen beiden Paketen, Source of Truth im Code
+- Bucketed Audit-Log (SHA-256-Hashes statt Klartext), memory-bounded Caches, durchgehend fail-closed-Defaults
+
+## Dokumentation
+
+- [`privacy-shield/docs/`](privacy-shield/docs/) — User-Guide, Installation, Security, DSGVO, Reasoning-Protection
+- [`injection-shield/docs/`](injection-shield/docs/) — Architektur, Installation, Operations, Troubleshooting
+- [SECURITY-AUDIT.md](SECURITY-AUDIT.md) — Audit-Methodik und Findings-Ledger (zweisprachig)
+
+## Lizenz & Support
+
+MIT — siehe [LICENSE](LICENSE). Bitte **keine** öffentlichen Issues für Schwachstellen; kontaktiere die MOTHR-Maintainer direkt.
+
+---
+
+> **English:** [README.md](README.md)
