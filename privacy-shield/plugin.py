@@ -30,7 +30,10 @@ from .log_utils import (
     partition_by_confidence,
 )
 from .mapping_table import InMemoryMappingTable, MappingTable
-from .metrics import get_metrics  # LINK-PS-8: expose metrics API on the plugin module
+from .metrics import (
+    get_metrics,  # LINK-PS-8: expose metrics API on the plugin module
+    record_restore_miss,
+)
 from .output_sanitizer import OutputSanitizer
 from .processors import AttachmentProcessor, init_attachment_preprocessor
 from .pseudonymizer import Pseudonymizer
@@ -749,7 +752,14 @@ class PrivacyShieldPlugin:
         # 1) Fresh-PII sanitisation: must run for EVERY channel.
         #    write_file / kanban / terminal output still needs to be free
         #    of raw PII even when restoration is skipped.
-        sanitized, _count = self.output_sanitizer.sanitize(text, session_id=session_id)
+        #    FIX-1B: the sanitizer reports the tokens it minted HERE via
+        #    the optional ``fresh_tokens`` out-param so the residual pass
+        #    below never touches them (they are intentionally unresolvable
+        #    and must stay visible).
+        fresh_tokens: set[str] = set()
+        sanitized, _count = self.output_sanitizer.sanitize(
+            text, session_id=session_id, fresh_tokens=fresh_tokens
+        )
         # If sanitiser disabled itself or returned the original, fall back.
         if sanitized is None:
             sanitized = text
@@ -757,7 +767,7 @@ class PrivacyShieldPlugin:
         # 2) Token restoration: only on allowed user-facing channels.
         # Channel matching is prefix-aware: the gateway delivers bare platform
         # names ("telegram", "desktop", "cli", "cron") while config entries may
-        # carry a chat scope ("telegram:1234567890"). A configured "telegram:ID"
+        # carry a chat scope ("telegram:12345"). A configured "telegram:ID"
         # entry must match a bare "telegram" delivery ONLY when a bare
         # "telegram" entry is also configured — otherwise a bare match would
         # leak PII to an unintended chat. Bare platform entries always match.
@@ -778,6 +788,14 @@ class PrivacyShieldPlugin:
 
         restored = self.mapper.restore_text(sanitized, session_id=session_id)
 
+        # v1.7.6 (Decision 1 + 2): residual pass — exclusive to the allowed
+        # restore path (after the channel gate). On non-allowed channels
+        # tokens stay exactly as the sanitizer left them; no placeholder
+        # substitution happens there (egress + fresh-PII behaviour intact).
+        restored = self._resolve_residual_tokens(
+            restored, session_id=session_id, fresh_tokens=fresh_tokens
+        )
+
         if restored != sanitized:
             logger.info(
                 "Privacy-Shield: Restored PII tokens in LLM response "
@@ -791,16 +809,117 @@ class PrivacyShieldPlugin:
             # Visible signal when tokens remain unresolved (missing mapping /
             # session mismatch / LLM-corrupted token). Helps diagnose "token
             # not reverse-translated" reports without dumping PII.
-            if self.mapper.token_pattern.search(restored or ""):
+            # v1.7.6 (FIX-1B): sanitizer-minted fresh tokens are resolved
+            # per contract and stay visible — they no longer count as
+            # "residual", only splice/placeholder misses already reported
+            # by _resolve_residual_tokens do.
+            residual = [
+                m.group(0)
+                for m in self.mapper.token_pattern.finditer(restored or "")
+                if m.group(0) not in fresh_tokens
+            ]
+            if residual:
                 logger.warning(
-                    "Privacy-Shield: response still contains TOKEN_* after "
-                    "restore (channel=%s session=%s) — mapping miss or "
-                    "corrupted token",
+                    "Privacy-Shield: response still contains %d unresolved "
+                    "TOKEN_* span(s) after restore (channel=%s session=%s) — "
+                    "mapping miss or corrupted token",
+                    len(residual),
                     target_channel,
                     session_id[:24] if session_id else "",
                 )
 
         return restored
+
+    def _resolve_residual_tokens(
+        self,
+        text: str,
+        session_id: str = "",
+        fresh_tokens: set[str] | None = None,
+    ) -> str:
+        """v1.7.6 residual pass: splice repair or restore-miss placeholder.
+
+        Runs EXCLUSIVELY in the allowed restore path (after the channel
+        gate in ``post_llm_response``) — never on non-allowed channels,
+        where tokens stay verbatim (egress + FIX-1B behaviour preserved).
+
+        For each residual ``TOKEN_*`` span found via ``mapper.token_pattern``:
+
+        - Sanitizer-fresh tokens (``fresh_tokens``) are skipped (FIX-1B):
+          they are intentionally unresolvable and stay visible.
+        - Otherwise the session-scoped splice repair tries
+          ``mapper.resolve_fuzzy_token(type_lower, serial, session_id)``
+          (Decision 2). Exactly one distinct same-session candidate →
+          the original value is substituted.
+        - Still unresolved → Decision 1: ``restore_miss_strategy``
+          ``placeholder`` substitutes ``restore_miss_placeholder``;
+          ``keep`` leaves the token verbatim. Every miss increments
+          ``record_restore_miss`` and logs a PII-free WARNING line
+          (session truncated, type, serial — no token string, no
+          plaintext original).
+        """
+        if not text:
+            return text
+        matches = list(self.mapper.token_pattern.finditer(text))
+        if not matches:
+            return text
+        if fresh_tokens is None:
+            fresh_tokens = set()
+
+        strategy = self.config.restore_miss_strategy
+        placeholder = self.config.restore_miss_placeholder
+        skip_placeholder = strategy != "placeholder" or not placeholder
+        resolver = getattr(self.mapper, "resolve_fuzzy_token", None)
+
+        out: list[str] = []
+        last = 0
+        misses = 0
+        repairs = 0
+        for m in matches:
+            out.append(text[last : m.start()])
+            last = m.end()
+            token = m.group(0)
+            if token in fresh_tokens:
+                out.append(token)
+                continue
+            token_type = (m.group(1) or "").lower()
+            serial_text = m.group(3)
+            serial = int(serial_text) if serial_text and serial_text.isdigit() else None
+            replacement: str | None = None
+            if resolver is not None and session_id and serial is not None:
+                try:
+                    replacement = resolver(token_type, serial, session_id)
+                except Exception:
+                    # Fail closed: treat as a miss, never crash the hook.
+                    logger.debug(
+                        "Privacy-Shield: splice repair attempt failed", exc_info=True
+                    )
+                    replacement = None
+            if replacement is None:
+                out.append(placeholder if not skip_placeholder else token)
+                misses += 1
+                logger.warning(
+                    "Privacy-Shield: restore_miss (session=%s, type=%s, serial=%s)",
+                    session_id[:16] if session_id else "",
+                    token_type or "?",
+                    serial if serial is not None else "n/a",
+                )
+            else:
+                out.append(str(replacement))
+                repairs += 1
+        out.append(text[last:])
+        if misses:
+            record_restore_miss(misses)
+        if misses or repairs:
+            # Finding 7g: WARNING when misses > 0 (auditable in security
+            # monitoring), INFO for pure repairs.
+            log = logger.warning if misses else logger.info
+            log(
+                "Privacy-Shield: residual pass finished (repaired=%d, misses=%d, "
+                "channel_gated_restore_path)",
+                repairs,
+                misses,
+            )
+        return "".join(out)
 
     @staticmethod
     def _channel_allowed(target_channel: str, allowed: tuple[str, ...]) -> bool:
@@ -812,7 +931,7 @@ class PrivacyShieldPlugin:
         scoped ``telegram:<chat_id>``-only configuration — restoration stays
         pinned to the operator's explicit chat until a bare ``telegram`` entry
         is also configured. (Fix 2026-09-19: the gateway delivers bare platform
-        names, so ``telegram`` never matched ``telegram:1234567890`` —
+        names, so ``telegram`` never matched ``telegram:12345`` —
         0 restores across all profiles.)
         """
         if not target_channel:
@@ -825,7 +944,8 @@ class PrivacyShieldPlugin:
     def on_session_end(self, session_id: str) -> None:
         """Hook fired when a session ends: purge the session's mappings.
 
-        Purpose-limitation purge (DSGVO Art. 5(1)(e), Dirk 2026-10-10):
+        Purpose-limitation purge (DSGVO Art. 5(1)(e); operator decision,
+        2026-10-10):
         the mapping exists exactly as long as the session it translates.
         Also crypto-shreds the pseudonymizer's per-session salt/counter/
         token-cache entries so the same session cannot be resumed.

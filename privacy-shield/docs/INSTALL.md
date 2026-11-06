@@ -10,7 +10,7 @@
 
 **Version:** 1.7.0 (2026-09-09)
 **Repository:** https://github.com/MOTHR/hermes-privacy-shield (PRIVAT)
-**Zielgruppe:** Entwickler, die Privacy-Shield in Hermes/HigginsOS integrieren möchten
+**Zielgruppe:** Entwickler, die Privacy-Shield in Hermes/Hermes integrieren möchten
 
 ---
 
@@ -443,7 +443,7 @@ hermes -p <profile> plugins list | grep privacy-shield
 
 **Version:** 1.7.0 (2026-09-09)
 **Repository:** https://github.com/MOTHR/hermes-privacy-shield (PRIVATE)
-**Target audience:** Developers who want to integrate Privacy-Shield into Hermes/HigginsOS
+**Target audience:** Developers who want to integrate Privacy-Shield into Hermes/Hermes
 
 ---
 

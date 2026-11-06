@@ -31,7 +31,7 @@ from privacy_shield.pseudonymizer import Pseudonymizer
 @click.group()
 @click.version_option(version=__version__, prog_name="privacy-shield")
 def main() -> None:
-    """Privacy-Shield — PII pseudonymization for Hermes/Higgins."""
+    """Privacy-Shield — PII pseudonymization for Hermes."""
 
 
 @main.command()
@@ -83,37 +83,24 @@ def setup(key_install: bool) -> None:
     click.echo("✓ Plugin registered in ~/.hermes/config.yaml")
 
     # 3. Symlink plugin into every profile.
-    # BUTLER-PS-5 / FIX-PS-R5-OPS: explicit profile list. The previous
-    # `profiles_dir.iterdir()` only saw profiles that happened to exist
-    # on the operator's machine, which gave no guarantee that the
-    # documented 14-profile rollout was actually complete. We now keep
-    # a curated list of the canonical Hermes profiles here and treat a
-    # missing profile directory as a non-fatal warning so the operator
-    # gets a clear rollout checklist instead of a silent partial pass.
+    # Profile set: explicit override via PRIVACY_SHIELD_PROFILES ("a,b,c"),
+    # otherwise every profile directory found on disk. This used to be a
+    # hard-coded fleet roster — a local deployment detail that does not
+    # belong in a public plugin; with discovery the rollout covers whatever
+    # actually exists, and a missing entry can only occur in override mode.
     plugin_root = Path(__file__).resolve().parent
     profiles_dir = Path.home() / ".hermes" / "profiles"
-    # Canonical list, kept in lock-step with docs/INSTALL.md Section 6.3.
-    # Adding a profile here is the source of truth; INSTALL.md references
-    # the same enumeration.
-    canonical_profiles: tuple[str, ...] = (
-        "default",
-        "operator",
-        "orakel",
-        "architect",
-        "merovinger",
-        "seraph",
-        "agent-smith",
-        "schluesselmacher",
-        "trinity",
-        "butler",
-        "morpheus",
-        "scribe",
-        "sysadmin",
-        "link-devops",
-        "telegram",  # egress-whitelist gateway
-        "discord",   # egress-whitelist gateway
-        "local",     # Ollama BYPASS — symlink only, plugin disabled
-    )
+    override = os.environ.get("PRIVACY_SHIELD_PROFILES", "")
+    if override.strip():
+        canonical_profiles = tuple(
+            name.strip() for name in override.split(",") if name.strip()
+        )
+    elif profiles_dir.is_dir():
+        canonical_profiles = tuple(
+            sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
+        )
+    else:
+        canonical_profiles = ()
     linked = 0
     skipped = 0
     missing: list[str] = []
@@ -145,10 +132,9 @@ def setup(key_install: bool) -> None:
     click.echo(f"✓ Symlinked plugin into {linked} profile(s) ({skipped} already linked)")
     if missing:
         click.echo(
-            "⚠  Canonical profiles missing on disk (not symlinked): "
+            "⚠  Profiles in PRIVACY_SHIELD_PROFILES missing on disk (not symlinked): "
             + ", ".join(missing)
-            + "\n   Run `privacy-shield setup` again after creating them, "
-            "or consult docs/INSTALL.md Section 6.3 for the full rollout checklist."
+            + "\n   Run `privacy-shield setup` again after creating them."
         )
 
     # 4. Reinstall editable package so import paths are fresh

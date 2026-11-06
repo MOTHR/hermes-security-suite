@@ -32,7 +32,7 @@ MEDIUM_PROMPT = (
     "Bitte senden Sie die Rechnung an max.mustermann@firma-gmbh.de. "
     "Bei Rückfragen erreichen Sie uns unter +49 711 123456. "
     "Unsere Bankverbindung: DE89370400440532013000. "
-    "Server-IP: 10.255.255.1. "
+    "Server-IP: 192.168.1.1. "
     "Lieferadresse: 12345 Berlin, Hauptstraße 1. "
     "Steuer-ID: 12 345 678 901. "
 ) * 5  # ~500 chars

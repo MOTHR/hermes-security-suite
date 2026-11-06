@@ -35,8 +35,9 @@ if ! OUTPUT=$(privacy-shield map --cleanup-expired 2>&1); then
     RC=$?
     log "FAIL: map --cleanup-expired exited with rc=$RC"
     echo "$OUTPUT" >> "$LOG"
-    if [ -x "$HERMES_HOME/profiles/sysadmin/scripts/telegram-alert.sh" ]; then
-        "$HERMES_HOME/profiles/sysadmin/scripts/telegram-alert.sh" \
+    ALERT_SCRIPT="${PRIVACY_SHIELD_ALERT_SCRIPT:-$HERMES_HOME/scripts/telegram-alert.sh}"
+    if [ -x "$ALERT_SCRIPT" ]; then
+        "$ALERT_SCRIPT" \
             "Privacy-Shield Cleanup FAILED" \
             "map --cleanup-expired exit $RC at $(date -u +%Y-%m-%dT%H:%M:%SZ)
 Last output:

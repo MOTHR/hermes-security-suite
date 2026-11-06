@@ -265,7 +265,7 @@ function renderPane(ctx) {
                 key: "editor",
                 value: Array.isArray(value) ? value : field.default,
                 onChange: (v) => update(key, v),
-                placeholder: "telegram:123456789",
+                placeholder: "telegram:12345",
               }),
             ],
           });

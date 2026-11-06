@@ -5,8 +5,8 @@ How the pytest suite is run and how test isolation works.
 ## Running the suite
 
 ```bash
-cd ~/.hermes/profiles/operator/workspace/hermes-privacy-shield
-~/.hermes/hermes-agent/venv/bin/python -m pytest tests/ -q --tb=line
+cd /path/to/hermes-privacy-shield
+python3 -m pytest tests/ -q --tb=line
 ```
 
 ## Test Log Isolation

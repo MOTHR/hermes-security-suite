@@ -1,6 +1,6 @@
 """PhoneDetector — extracted phone-number sub-detector (FIX-PS4).
 
-FP-hardened 2026-09-20 (merovinger Telegram incident): the old single-regex
+FP-hardened 2026-09-20 (fleet Telegram incident): the old single-regex
 approach tokenized ``20260920`` inside a vault file path as a phone number
 (``TOKEN_PHONE_d4a6fa120b_012-...``). Detection is now a STRICT-structured
 pattern (keeps the old block forms so the locale corpus stays green) plus

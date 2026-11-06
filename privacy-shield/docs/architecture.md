@@ -153,7 +153,7 @@ Die Mapping-Tabelle speichert Token<->Original-Paare in SQLite.
 
 ## Spec-Referenz
 
-`docs/architecture.md`
+Interne AI-Act-Architektur-Spec, v1 (nicht veröffentlicht).
 
 ## Phase-2-Ausblick
 
@@ -310,7 +310,7 @@ The mapping table stores token<->original pairs in SQLite.
 
 ## Spec Reference
 
-`docs/architecture.md`
+Internal AI-Act architecture spec, v1 (not published).
 
 ## Phase 2 Outlook
 

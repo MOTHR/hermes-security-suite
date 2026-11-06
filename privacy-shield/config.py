@@ -35,6 +35,14 @@ except Exception:  # pragma: no cover - import optional dependency
 
 ALLOWED_MODES = ("off", "audit", "limited", "strict", "paranoid")
 ALLOWED_REASONING_MODES = ("off", "audit", "restore")
+ALLOWED_RESTORE_MISS_STRATEGIES = ("placeholder", "keep")
+# v1.7.6 (Decision 1): exact residual-token replacement text. Contains an
+# En-Dash (U+2013) — do NOT normalize to a hyphen. Default is the German
+# string; EN deployments override via ``restore_miss_placeholder`` in
+# config.yaml (bilingual plugin-text rule: DE default, EN override).
+#   DE (default): "[maskiertes PII – nicht wiederherstellbar]"
+#   EN (override example): "[masked PII – cannot be restored]"
+DEFAULT_RESTORE_MISS_PLACEHOLDER = "[maskiertes PII – nicht wiederherstellbar]"
 TOKEN_SUFFIX_PATTERN = re.compile(r"[0-9a-f]{" + str(DEFAULT_HASH_LENGTH) + r"}")
 
 
@@ -79,6 +87,12 @@ def _default_restore_channels() -> tuple[str, ...]:
     cron channel requires an explicit operator opt-in via
     ``restore_allowed_channels`` in config.yaml.
 
+    v1.7.6 (Decision 3, Dirk 2026-10-29): ``kanban`` is added as a bare
+    default. The kanban channel is board-internal, the chat-ID allowlist
+    (``allowed_chats`` / ``allowed_chat_ids`` / telegram-send) remains the
+    trust boundary and is untouched — only the single channel entry arrives,
+    tool egress (write_file, terminal, MCP, kanban_attach) stays blocked.
+
     Optionally prepends a scoped ``telegram:<chat_id>`` entry when the chat ID
     is available from ``PRIVACY_SHIELD_RESTORE_CHAT_ID`` or
     ``pass show hermes/telegram/chat_id``.
@@ -94,7 +108,7 @@ def _default_restore_channels() -> tuple[str, ...]:
     # Keep this list in sync with gateway/cron/cli delivery labels.
     # PS-CHANNEL-007: 'cron' requires explicit operator opt-in — cron output
     # may go to logs/webhooks/files, not (only) to the user.
-    bare: list[str] = ["telegram", "desktop", "cli"]
+    bare: list[str] = ["telegram", "desktop", "cli", "kanban"]
 
     chat_id = os.environ.get("PRIVACY_SHIELD_RESTORE_CHAT_ID")
     if not chat_id:
@@ -153,6 +167,16 @@ class PrivacyShieldConfig:
 
     # Egress / restore control
     restore_allowed_channels: tuple[str, ...] = field(default_factory=_default_restore_channels)
+    # v1.7.6 (Decision 1): what happens to a residual TOKEN_* span after the
+    # restore pass could not resolve it (mapping miss, ambiguous (type,
+    # serial) splice candidates, legacy row without serial). "placeholder"
+    # replaces the span with ``restore_miss_placeholder`` (fail-closed: the
+    # user sees that masking happened, tokens never egress unreadable and
+    # silent); "keep" leaves the literal token in the output. Invalid YAML
+    # values fall back to the default with a warning (see load_config /
+    # validate_config), mirroring ``reasoning.mode`` handling.
+    restore_miss_strategy: str = "placeholder"
+    restore_miss_placeholder: str = DEFAULT_RESTORE_MISS_PLACEHOLDER
     vault_tool_prefixes: tuple[str, ...] = ("mcp__obsidian__",)
     cache_bypass: bool = True
 
@@ -486,6 +510,24 @@ def load_config() -> PrivacyShieldConfig:
     # Merge user overrides from Hermes config.yaml regardless of key state;
     # a user might still want to tune thresholds before enabling the key.
     _merge_user_config(config)
+    # v1.7.6 (Decision 1): invalid restore_miss_strategy falls back to the
+    # default with a warning instead of silently disabling the residual pass
+    # semantics — same contract as the reasoning-mode env validation above.
+    if config.restore_miss_strategy not in ALLOWED_RESTORE_MISS_STRATEGIES:
+        logger.warning(
+            "Privacy-Shield: invalid restore_miss_strategy=%r, expected one of "
+            "%s; using default 'placeholder'",
+            config.restore_miss_strategy,
+            "/".join(ALLOWED_RESTORE_MISS_STRATEGIES),
+        )
+        config.restore_miss_strategy = "placeholder"
+    if not isinstance(config.restore_miss_placeholder, str) or not config.restore_miss_placeholder:
+        logger.warning(
+            "Privacy-Shield: restore_miss_placeholder is empty or not a string "
+            "(%s); using default text",
+            type(config.restore_miss_placeholder).__name__,
+        )
+        config.restore_miss_placeholder = DEFAULT_RESTORE_MISS_PLACEHOLDER
     return config
 
 
@@ -573,6 +615,18 @@ def validate_config(config: PrivacyShieldConfig) -> list[str]:
             f"Invalid reasoning.mode: {config.reasoning.mode} "
             "(expected one of off/audit/restore)"
         )
+    if config.restore_miss_strategy not in ALLOWED_RESTORE_MISS_STRATEGIES:
+        issues.append(
+            f"Invalid restore_miss_strategy: {config.restore_miss_strategy} "
+            f"(expected one of {'/'.join(ALLOWED_RESTORE_MISS_STRATEGIES)})"
+        )
+    if not isinstance(config.restore_miss_placeholder, str):
+        issues.append(
+            f"restore_miss_placeholder must be a string, got "
+            f"{type(config.restore_miss_placeholder).__name__}"
+        )
+    elif not config.restore_miss_placeholder:
+        issues.append("restore_miss_placeholder must not be empty")
     if not 0.0 <= config.reasoning.confidence_threshold <= 1.0:
         issues.append(
             f"reasoning.confidence_threshold must be in [0.0, 1.0]: "

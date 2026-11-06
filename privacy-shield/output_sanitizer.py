@@ -53,7 +53,10 @@ class OutputSanitizer:
         self._partition_by_confidence = partition_by_confidence
 
     def sanitize(
-        self, text: Optional[str], session_id: str = ""
+        self,
+        text: Optional[str],
+        session_id: str = "",
+        fresh_tokens: Optional[set[str]] = None,
     ) -> tuple[Optional[str], int]:
         """Sanitize fresh PII in *text* and return ``(text, count)``.
 
@@ -68,6 +71,13 @@ class OutputSanitizer:
         restore_text pass resolve the token back to the original
         PII, defeating the sanitisation.  The user must see the
         token, not the raw value.
+
+        v1.7.6 (FIX-1B): when *fresh_tokens* is a set (the optional out
+        param), the tokens minted in THIS call are reported to the caller
+        so the residual-restore pass (restore-miss placeholder / splice
+        repair) leaves them untouched — they are intentionally
+        unresolvable and must stay visible.  The existing 2-tuple return
+        contract is unchanged.
         """
         if not text:
             return text, 0
@@ -98,6 +108,12 @@ class OutputSanitizer:
         sanitized, _mapping = self._pseudonymizer.replace(
             text, fresh_hits, session_id=session_id
         )
+        if fresh_tokens is not None:
+            fresh_tokens.update(
+                entry["token"]
+                for entry in _mapping
+                if entry.get("token")
+            )
         return sanitized, len(fresh_hits)
 
     @staticmethod

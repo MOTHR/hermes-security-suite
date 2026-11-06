@@ -2,7 +2,7 @@
 
 Regression contract: the gateway delivers bare platform names as
 ``platform``/``target_channel`` ("telegram", "desktop", "cli"), while config
-entries may be scoped ("telegram:1234567890"). Before the fix, a bare delivery
+entries may be scoped ("telegram:12345"). Before the fix, a bare delivery
 never matched a scoped entry — restoration skipped on EVERY channel and the
 user saw ``TOKEN_*`` instead of plaintext (0 restores across all profiles).
 
@@ -35,11 +35,11 @@ class TestChannelAllowed:
             ("desktop", ("desktop", "cli"), True),
             ("cli", ("desktop", "cli"), True),
             # Bare delivery of a platform that also has a bare entry.
-            ("telegram", ("telegram:1234567890", "telegram", "desktop"), True),
-            ("telegram:1234567890", ("telegram:1234567890", "telegram"), True),
+            ("telegram", ("telegram:12345", "telegram", "desktop"), True),
+            ("telegram:12345", ("telegram:12345", "telegram"), True),
             # FAIL-CLOSED: bare telegram delivery vs scoped-only configuration.
-            ("telegram", ("telegram:1234567890",), False),
-            ("telegram:999", ("telegram:1234567890",), False),
+            ("telegram", ("telegram:12345",), False),
+            ("telegram:999", ("telegram:12345",), False),
             # Unknown / empty channels stay blocked.
             ("", ("telegram", "desktop", "cli"), False),
             ("kanban", ("telegram", "desktop", "cli"), False),
@@ -47,7 +47,7 @@ class TestChannelAllowed:
             # Scoped delivery of another chat does not inherit the bare entry
             # match for a DIFFERENT id — but its platform part still matches a
             # bare configured entry.
-            ("telegram:999", ("telegram:1234567890", "telegram"), True),
+            ("telegram:999", ("telegram:12345", "telegram"), True),
         ],
     )
     def test_channel_allowed(self, target, allowed, expected):
@@ -79,7 +79,7 @@ class TestChannelAllowed:
             mode="limited",
             encryption_key="test-key-32-bytes-xxxxxxxxxxxxx",
             storage_mode="memory",
-            restore_allowed_channels=("telegram:1234567890", "telegram", "desktop", "cli"),
+            restore_allowed_channels=("telegram:12345", "telegram", "desktop", "cli"),
         )
         plugin = PrivacyShieldPlugin(config=config)
         original = "max.mustermann@firma-gmbh.de"

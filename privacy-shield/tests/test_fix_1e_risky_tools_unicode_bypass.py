@@ -195,9 +195,9 @@ class TestUnicodeBypassHardening:
 
     def test_leet_map_does_not_eat_ip_addresses(self):
         # The leet pass is scoped to ``@`` runs, so IP addresses are intact.
-        text = "Server: 10.255.255.1"
+        text = "Server: 192.168.1.1"
         normalized = normalize_text(text)
-        assert "10.255.255.1" in normalized
+        assert "192.168.1.1" in normalized
 
     def test_leet_map_table_is_finite(self):
         # Sanity check: the map must not grow unbounded.  10 entries today,
@@ -363,7 +363,7 @@ class TestCodeContextPenalty:
         # api_key has confidence 1.0 and is NOT in the penalized-types set.
         text = (
             "```\n"
-            "api_key: sk_te" "st_4eC39HqLyjWDarjtT1zdp7dc\n"
+            "api_key: sk_test_4eC39HqL" "yjWDarjtT1zdp7dc\n"
             "```"
         )
         matches = d.scan(text)

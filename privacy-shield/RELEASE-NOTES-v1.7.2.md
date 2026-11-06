@@ -11,7 +11,7 @@ Users (and agent final messages) kept seeing raw placeholders such as
    whenever `pass show hermes/telegram/chat_id` / env could not resolve a chat
    ID. Profiles without an explicit
    `plugins.entries.privacy-shield.restore_allowed_channels` override
-   (sysadmin, trinity, link-devops, scribe, seraph, merovinger, agent-smith, …)
+   (i.e. the majority of the operator's fleet at that time)
    therefore skipped every restore. Gateway delivers bare `"telegram"`, so the
    scoped-only default `telegram:<id>` never matched either.
 
@@ -21,7 +21,7 @@ Users (and agent final messages) kept seeing raw placeholders such as
    deliveries left tokens intact.
 
 Live evidence: `state.db` assistant rows with unresolved `TOKEN_BIC_*` on
-sysadmin / link-devops / orakel; gateway.log lines
+several profiles; gateway.log lines
 `restoration skipped for channel telegram` (2026-10-04); zero
 `Restored PII tokens` successes in the same window.
 

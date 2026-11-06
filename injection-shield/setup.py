@@ -26,7 +26,7 @@ def _install_desktop_plugin() -> None:
     """Copy bundled desktop plugin into the Hermes desktop-plugins directory."""
     source = Path(__file__).resolve().parent / "desktop"
     if not source.exists():
-        logger.warning("injection-shield: desktop source not found at %s", source)
+        logger.warning("injection-shield: desktop plugin source not found at %s", source)
         return
 
     dest = Path.home() / ".hermes" / "desktop-plugins" / DEST_NAME

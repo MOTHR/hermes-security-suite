@@ -39,7 +39,7 @@
 
 ## Spec-Referenz
 
-`docs/architecture.md`
+Interne AI-Act-Architektur-Spec, v1 (nicht veröffentlicht).
 
 ---
 
@@ -78,4 +78,4 @@
 
 ## Spec Reference
 
-`docs/architecture.md`
+Internal AI-Act architecture spec, v1 (not published).

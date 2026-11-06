@@ -4,7 +4,7 @@
 
 DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visible LLM output and reasoning content.
 
-**Version:** 1.7.0 (2026-09-09) — 58 detection patterns · 820 tests · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
+**Version:** 1.8.0 (2026-11-06) — 58 detection patterns · 1066 tests · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
 
 ## Features
 
@@ -25,9 +25,9 @@ DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visibl
 
 ```bash
 # 1. Install (via Git — GitHub access required)
-pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
+pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.6
 # or for development with editable source
-pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt
+pip install -e .
 
 # 2. Generate encryption key (once)
 python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
@@ -52,7 +52,7 @@ Privacy-Shield ships an official desktop plugin so you can tune settings in the 
 - Toggle PDF / Image OCR / cache bypass
 - Run a synthetic restore smoke test
 
-The desktop plugin is bundled in `desktop/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt`). **No manual copying is required.**
+The desktop plugin is bundled in `desktop/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .`). **No manual copying is required.**
 
 The backend lives in `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system at `/api/plugins/privacy-shield/`.
 
@@ -85,6 +85,57 @@ plugins:
 ```
 
 **Limitations:** See [`docs/reasoning-protection.md`](docs/reasoning-protection.md) for coverage details and the (resolved) persistence-limitation history.
+
+### Restore-Miss handling, splice repair, kanban channel (v1.7.6)
+
+Tokens that the restore pass cannot resolve on an allowed channel no longer
+stay dangling: with `restore_miss_strategy: placeholder` (default) they are
+replaced by `[maskiertes PII – nicht wiederherstellbar]` (German default
+text; override with `restore_miss_placeholder` for EN deployments — the
+text is substituted token-span-only, so glued suffixes survive). Each miss
+is logged PII-free (WARNING: session/type/serial, no token string, no
+plaintext) and counted (`restore_misses` in `get_metrics()`, Prometheus
+`privacy_shield_restore_misses_total`). `keep` preserves the old
+leave-the-token-verbatim behaviour.
+
+A model-mangled token (correct serial, broken hash) is repaired from
+`(type, serial)` **within the same session only**: exactly one distinct
+same-session candidate → original restored, 0 or ≥ 2 distinct candidates
+(counter restarts after LRU eviction make collisions expected) →
+restore-miss placeholder. Never across sessions; legacy tokens without a
+serial never repair (fail-closed). The mapping table gains a nullable
+`token_serial` column + `(session_id, type, token_serial)` index; a bounded
+lazy backfill migrates legacy rows (≤ 200 rows, once per (session, type)),
+and `scripts/backfill_token_serial.py` converges the whole table offline
+(resumable, chunked, progress output — a full 61k-row decrypt is host- and
+backend-dependent (PBKDF2 ~40–120 ms/row; ~86 ms with hashlib, ~117 ms with
+the cryptography backend on the deploy host), which is why operational paths
+touch only a few rows per query).
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      restore_miss_strategy: placeholder   # placeholder | keep
+      restore_miss_placeholder: "[masked PII – cannot be restored]"  # optional EN override
+      restore_allowed_channels: ["telegram", "desktop", "cli", "kanban"]
+```
+
+> **Warning — an explicit override replaces the entire default list:** an
+> explicit `restore_allowed_channels` in the configuration replaces the whole
+> default list (`_merge_user_config` overwrites the entire tuple — no auto
+> merge). An explicit entry **without** `kanban` silently disables kanban
+> restoration — include `kanban` in every explicit entry that should keep
+> restoring.
+
+`kanban` is now a default restore channel so board-visible answers can
+round-trip. **Trust boundary unchanged:** the chat-ID allowlist
+(`allowed_chats` / `allowed_chat_ids` / telegram-send limits) still gates
+who can receive restored PII; only the single channel entry was added.
+Tool egress (write_file, terminal, MCP, kanban_attach) explicitly stays
+non-restoring. Fresh-PII behaviour is preserved (FIX-1B): the
+sanitizer-minted tokens for new leaks stay visible and are never restored
+or placeholder-substituted.
 
 ## Architecture
 
@@ -120,7 +171,7 @@ User sees original data (only in whitelisted channels)
 ## Security
 
 - **4 review rounds** (independent profiles: research, validation, architecture, operations, memory, system-admin)
-- **820 tests green** (CI: 3.10/3.11/3.12 + lint + mypy strict + security)
+- **1066 tests green** (CI: 3.10/3.11/3.12 + lint + mypy strict + security)
 - **0 open CRITICAL/HIGH/MEDIUM findings**
 - **AES-256-GCM** with PBKDF2 100k iterations
 - **Egress whitelist** prevents accidental PII leaks
@@ -215,7 +266,7 @@ python3 scripts/setup_profiles.py
 ```bash
 python3 scripts/sync_version.py          # sync to plugin.yaml version
 python3 scripts/sync_version.py --check  # CI gate: exit 1 if drift
-python3 scripts/sync_version.py --set 1.7.0  # bump all three files
+python3 scripts/sync_version.py --set 1.7.6  # bump all three files
 ```
 
 ## License
@@ -224,7 +275,7 @@ MIT License — see [LICENSE](LICENSE).
 
 ## Support
 
-- Repository: https://github.com/MOTHR/hermes-security-suite (suite monorepo)
+- Repository: https://github.com/MOTHR/hermes-privacy-shield
 - Issues: GitHub Issues
 - GDPR questions: docs/AVV-Checkliste.md
 

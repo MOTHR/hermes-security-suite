@@ -21,7 +21,7 @@ TOKEN_RE = re.compile(r"\bTOKEN_[A-Z_]+_[0-9a-f]{10}_\d{3}\b")
 
 RAW_REASONING = (
     "Der Nutzer Max Mustermann schrieb von max.mustermann@example.com. "
-    "Seine API-Key ist sk_li" "ve_51H8xQ2eKz9vJpN3mBrTcAwy."
+    "Seine API-Key ist sk_live_51H8xQ2e" "Kz9vJpN3mBrTcAwy."
 )
 
 

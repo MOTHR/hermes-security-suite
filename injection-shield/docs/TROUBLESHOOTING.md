@@ -42,8 +42,8 @@ for t, n in sorted(c.items(), key=lambda x: -x[1]): print(f'{t}: {n}')"
 
 ## Bypass entdeckt
 
-**Symptom:** Im Output des LLM tauchen klar verdächtige Konstrukte auf
-("ignore previous instructions", Base64-URL-Payloads, Variation-Selector-Stego),
+**Symptom:** Im Output des LLM tauchen klar verdächtige Konstrukte auf:
+klassische Override-Formulierungen, Base64-URL-Payloads, Variation-Selector-Stego —
 obwohl das Plugin aktiv ist.
 
 **Sofort-Maßnahmen:**
@@ -100,7 +100,7 @@ hermes plugins info injection-shield
    ```
 2. **Workaround** bis Update: Plugin deaktivieren:
    ```bash
-   sed -i '/injection-shield/d' ~/.hermes/config.yaml
+   hermes plugins disable injection-shield
    ```
    Oder Modus auf `off` setzen (kein Hook-Overhead, aber Plugin bleibt geladen).
 3. **Detector-Isolation**: Die `DetectorChain` wrappt jeden Detector in einen
@@ -248,8 +248,8 @@ for t, n in sorted(c.items(), key=lambda x: -x[1]): print(f'{t}: {n}')"
 
 ## Bypass Discovered
 
-**Symptom:** Clearly suspicious constructs appear in the LLM output
-("ignore previous instructions", base64 URL payloads, variation selector stego),
+**Symptom:** Clearly suspicious constructs appear in the LLM output:
+classic override-style phrases, base64 URL payloads, variation selector stego —
 even though the plugin is active.
 
 **Immediate actions:**
@@ -305,7 +305,7 @@ hermes plugins info injection-shield
    ```
 2. **Workaround** until update: disable the plugin:
    ```bash
-   sed -i '/injection-shield/d' ~/.hermes/config.yaml
+   hermes plugins disable injection-shield
    ```
    Or set mode to `off` (no hook overhead, but plugin stays loaded).
 3. **Detector isolation**: The `DetectorChain` wraps each detector in

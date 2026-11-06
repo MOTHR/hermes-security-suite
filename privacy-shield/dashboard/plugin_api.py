@@ -24,20 +24,55 @@ except Exception:  # pragma: no cover - optional in minimal test harness
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
-from privacy_shield import DEFAULT_HASH_LENGTH, __version__
-from privacy_shield.audit import AuditLogger
-from privacy_shield.config import (
-    ALLOWED_MODES,
-    ALLOWED_REASONING_MODES,
-    PrivacyShieldConfig,
-    ReasoningBlockConfig,
-    load_config,
-    validate_config,
-)
-from privacy_shield.detectors.chain_factory import build_default_chain
-from privacy_shield.detectors.dataclasses import PIIMatch
-from privacy_shield.mapping_table import InMemoryMappingTable
-from privacy_shield.pseudonymizer import Pseudonymizer
+import importlib.util
+import sys as _sys
+
+
+def _load_own_shield() -> Any:
+    """Load THIS dashboard's plugin root under a private package name.
+
+    Bare ``import privacy_shield`` resolves via stale site-packages
+    editable finders to whichever old copy is installed — the root cause
+    of the Desktop dashboard reading another copy's config/state.
+    """
+    root = Path(__file__).resolve().parent.parent
+    name = "_privacy_shield_dashboard_own"
+    if name not in _sys.modules:
+        spec = importlib.util.spec_from_file_location(
+            name, root / "__init__.py",
+            submodule_search_locations=[str(root)],
+        )
+        if spec is None or spec.loader is None:
+            raise ImportError(f"cannot spec-load plugin root {root}")
+        pkg = importlib.util.module_from_spec(spec)
+        _sys.modules[name] = pkg
+        spec.loader.exec_module(pkg)
+    return _sys.modules[name]
+
+
+_shield = _load_own_shield()
+DEFAULT_HASH_LENGTH = _shield.DEFAULT_HASH_LENGTH
+__version__ = _shield.__version__
+_cfg_pkg = importlib.import_module("_privacy_shield_dashboard_own.config")
+_audit_pkg = importlib.import_module("_privacy_shield_dashboard_own.audit")
+_chain_pkg = importlib.import_module("_privacy_shield_dashboard_own.detectors.chain_factory")
+_data_pkg = importlib.import_module("_privacy_shield_dashboard_own.detectors.dataclasses")
+_map_pkg = importlib.import_module("_privacy_shield_dashboard_own.mapping_table")
+_pseudo_pkg = importlib.import_module("_privacy_shield_dashboard_own.pseudonymizer")
+
+ALLOWED_MODES = _cfg_pkg.ALLOWED_MODES
+ALLOWED_REASONING_MODES = _cfg_pkg.ALLOWED_REASONING_MODES
+PrivacyShieldConfig = _cfg_pkg.PrivacyShieldConfig
+ReasoningBlockConfig = _cfg_pkg.ReasoningBlockConfig
+load_config = _cfg_pkg.load_config
+validate_config = _cfg_pkg.validate_config
+
+AuditLogger = _audit_pkg.AuditLogger
+
+build_default_chain = _chain_pkg.build_default_chain
+PIIMatch = _data_pkg.PIIMatch
+InMemoryMappingTable = _map_pkg.InMemoryMappingTable
+Pseudonymizer = _pseudo_pkg.Pseudonymizer
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

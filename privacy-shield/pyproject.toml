@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "privacy-shield"
 dynamic = ["version"]
-description = "PII pseudonymization for Hermes/Higgins — DSGVO & EU AI Act compliance"
+description = "PII pseudonymization for Hermes — DSGVO & EU AI Act compliance"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
@@ -79,3 +79,10 @@ strict = true
 ignore_missing_imports = true
 exclude = ["tests/", "scripts/", "docs/"]
 warn_unused_ignores = true
+
+# dashboard/plugin_api.py loads the plugin root dynamically (self-load fix,
+# 499d4cd) via importlib spec loading, so the config classes/aliases resolve to
+# Any for mypy. Scope the resulting codes to this module only.
+[[tool.mypy.overrides]]
+module = "privacy_shield.dashboard.plugin_api"
+disable_error_code = ["valid-type", "attr-defined"]

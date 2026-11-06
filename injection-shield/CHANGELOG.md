@@ -9,6 +9,51 @@ cross-references the review-ID it closes.
 
 ---
 
+## [0.7.1] — 2026-11-06 (public readiness: unified desktop package + LICENSE + security policy)
+
+### Changed
+
+* **Unified desktop-package path** — `desktop-plugin/plugin.js` moved to
+  `desktop/plugin.js`, matching the Hermes desktop-plugin install lookup
+  (`desktop/plugin.js` or root `plugin.js`). `setup.py` copy hook,
+  `MANIFEST.in`, test and docs updated accordingly.
+* **`plugin.yaml` manifest** — dead `min_hermes_version` field replaced
+  with the enforced `requires_hermes: ">=0.21.5"`.
+
+### Added
+
+* **`LICENSE`** — MIT (declared in `plugin.yaml` since 0.5.0).
+* **`TOKEN_BIC_aadf003511_004.md`** — security policy: what the plugin
+  does/reads/writes, network egress (none by default), opt-in Telegram
+  alerting, credential routing via Hermes.
+
+Version mirrors synced to 0.7.1 (`plugin.yaml`, `plugin.de.yaml`,
+`dashboard/manifest.json`, `__init__.py`).
+
+---
+
+## [0.7.0] — 2026-10-29 (dashboard self-load + manifest delivery)
+
+### Fixed
+
+* **Dashboard self-load** — `dashboard/plugin_api.py` no longer does a
+  bare `from injection_shield import …`, which resolved via stale
+  site-packages/editable finders to whichever old copy was installed
+  (root cause of the Desktop dashboard reading another copy's
+  config/state). The plugin root is now spec-loaded from the dashboard's
+  own location under the private package name
+  `_injection_shield_dashboard_own`; config and detectors are read from
+  that private module. This is a desktop-API-level change (minor bump).
+* **`dashboard/manifest.json` shipped** — plugin discovery requires the
+  manifest, otherwise `/api/plugins/injection-shield` never mounts and
+  the Desktop config UI hits a 404.
+
+Version mirrors synced to 0.7.0 (`plugin.yaml`, `plugin.de.yaml`,
+`dashboard/manifest.json`); `pyproject.toml` stays dynamic
+(`injection_shield.__version__`).
+
+---
+
 ## [0.5.3] — 2026-08-29 (alert de-noise: egress severity gate + rate limiting)
 
 ### Fixed

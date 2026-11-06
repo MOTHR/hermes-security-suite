@@ -1,5 +1,5 @@
 name: privacy-shield
-version: "1.7.5"
+version: "1.8.0"
 description: >-
   Privacy-Shield — Tokenizes personal data (PII) in LLM output before
   sending it to cloud providers. Modes: off / audit / restore. Configurable
@@ -20,7 +20,7 @@ dependencies:
   - pillow-heif>=0.16.0  # iPhone HEIC support (optional but recommended)
 license: MIT
 repository: https://github.com/MOTHR/hermes-privacy-shield
-min_hermes_version: "0.1.0"
+requires_hermes: ">=0.21.5"
 settings:
   - name: token_cache_max_size
     type: int

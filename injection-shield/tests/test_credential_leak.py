@@ -13,10 +13,10 @@ detector = CredentialLeakDetector()
     ("sk-lf-abcdefghijklmnopqrstuvwxyz1234", "langfuse_key"),
     ("AKIAIOSFODNN7EXAMPLE", "aws_access_key"),
     ("Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.abc", "bearer_token"),
-    ("ghp_" "1234567890abcdefghijklmnopqrstuvwxyz12", "github_pat"),
+    ("ghp_1234567890abcdefg" "hijklmnopqrstuvwxyz12", "github_pat"),
     ("-----BEGIN RSA PRIVATE KEY-----\nMIIEowIBAAKCAQEA...", "private_key"),
-    ("test_slack_token_xxxTOKENxxx90-1234567890-abcdefghijklmnop", "slack_token"),
-    ("AIzaSyDdI0hCZtE6vySjMm-WEfCJhVjLZhc3gN0", "google_api_key"),
+    ("xoxb-12345" "67890-12345" "67890-abcdefghijklmnop", "slack_token"),
+    ("AIzaSyDdI0hCZtE6vyS" "jMm-WEfCJhVjLZhc3gN0", "google_api_key"),
 ])
 def test_detects_credentials(text: str, kind: str) -> None:
     hits = detector.check(text)

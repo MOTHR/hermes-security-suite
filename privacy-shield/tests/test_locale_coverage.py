@@ -176,7 +176,7 @@ def test_passport_detection_per_locale(detector, text, expected):
 
 @pytest.mark.parametrize("text,expected_type", [
     ("4111111111111111", "credit_card"),
-    ("10.255.255.1", "ip_address"),
+    ("192.168.1.1", "ip_address"),
     ("eyJhbG.eyJabc.xyz", "jwt"),
 ])
 def test_global_patterns_work_everywhere(detector, text, expected_type):

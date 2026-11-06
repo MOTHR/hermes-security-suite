@@ -15,6 +15,7 @@ from typing import Any
 _cache_hits: int = 0
 _cache_misses: int = 0
 _masking_volume: int = 0
+_restore_misses: int = 0
 _lock = threading.Lock()
 
 
@@ -39,6 +40,18 @@ def record_masking(count: int = 1) -> None:
         _masking_volume += count
 
 
+def record_restore_miss(count: int = 1) -> None:
+    """Increment the residual-token restore-miss counter (v1.7.6, Decision 1).
+
+    One increment per TOKEN_* span that the restore pass could not resolve
+    (mapping miss, ambiguous splice candidates, legacy row). Contents stay
+    side-channel-safe: no token strings, no original values.
+    """
+    global _restore_misses
+    with _lock:
+        _restore_misses += count
+
+
 def get_metrics() -> dict[str, Any]:
     """Return a snapshot of all current Privacy-Shield metrics.
 
@@ -56,16 +69,18 @@ def get_metrics() -> dict[str, Any]:
             "cache_hit_rate": round(hit_rate, 4),
             "cache_hit_ratio": round(hit_rate, 4),
             "masking_volume": _masking_volume,
+            "restore_misses": _restore_misses,
         }
 
 
 def reset_metrics() -> None:
     """Reset all counters to zero. Intended for tests only."""
-    global _cache_hits, _cache_misses, _masking_volume
+    global _cache_hits, _cache_misses, _masking_volume, _restore_misses
     with _lock:
         _cache_hits = 0
         _cache_misses = 0
         _masking_volume = 0
+        _restore_misses = 0
 
 
 # ── Optional Prometheus integration ──────────────────────────────────────────
@@ -100,19 +115,32 @@ try:
         "Number of PII values replaced by tokens",
         registry=_prom_registry,
     )
+    _prom_restore_misses = Counter(
+        "privacy_shield_restore_misses_total",
+        "Residual tokens the restore pass could not resolve",
+        registry=_prom_registry,
+    )
 
-    def _record_prometheus(hits: int = 0, misses: int = 0, masking: int = 0) -> None:
+    def _record_prometheus(
+        hits: int = 0,
+        misses: int = 0,
+        masking: int = 0,
+        restore_misses: int = 0,
+    ) -> None:
         if _prom_cache_hits is not None:
             _prom_cache_hits.inc(hits)
         if _prom_cache_misses is not None:
             _prom_cache_misses.inc(misses)
         if _prom_masking_volume is not None:
             _prom_masking_volume.inc(masking)
+        if _prom_restore_misses is not None:
+            _prom_restore_misses.inc(restore_misses)
 
     # Patch the public helpers to also update Prometheus counters.
     _original_record_cache_hit = record_cache_hit
     _original_record_cache_miss = record_cache_miss
     _original_record_masking = record_masking
+    _original_record_restore_miss = record_restore_miss
 
     def record_cache_hit() -> None:
         _original_record_cache_hit()
@@ -125,6 +153,10 @@ try:
     def record_masking(count: int = 1) -> None:
         _original_record_masking(count)
         _record_prometheus(masking=count)
+
+    def record_restore_miss(count: int = 1) -> None:
+        _original_record_restore_miss(count)
+        _record_prometheus(restore_misses=count)
 
 except ImportError:
     # prometheus_client is optional; when absent the in-memory counters still work.

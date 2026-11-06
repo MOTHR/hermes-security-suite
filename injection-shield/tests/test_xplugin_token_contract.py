@@ -37,7 +37,7 @@ import pytest
 
 PRIVACY_SHIELD_DIR = os.environ.get(
     "PRIVACY_SHIELD_DIR",
-    "/home/user/.hermes/plugins/privacy-shield",
+    "/Users/minimetro/.hermes/plugins/privacy-shield",
 )
 INJECTION_SHIELD_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

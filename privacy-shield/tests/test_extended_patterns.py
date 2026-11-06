@@ -1,6 +1,6 @@
 """Tests for extended PII patterns added in Phase 4 (12 → 47 patterns).
 
-Spec reference: docs/security/20260821-privacy-shield-hardening.md
+Spec reference: internal hardening protocol doc, 2026-08-21 (not published).
 """
 
 import time
@@ -174,12 +174,12 @@ class TestAuthDetection:
         matches = detector.scan(text)
         # The redacted sample does not contain a real secret, so the test only
         # verifies that a real long secret is classified as api_key.
-        real = "api-key: sk_li" "ve_51H7xYZabcdefghijklmnopqrstuvwxyz"
+        real = "api-key: sk_live_51H7xYZabcde" "fghijklmnopqrstuvwxyz"
         matches = detector.scan(real)
         assert any(m.type == "api_key" for m in matches)
 
     def test_stripe_key(self, detector):
-        text = "sk_li" "ve_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9"
+        text = "sk_live_a1b" "2c3d4e5f6g7h" "8i9j0k1l2m3n4o5p6q7r8s9"
         matches = detector.scan(text)
         assert any(m.type == "stripe_live_key" for m in matches)
 
@@ -251,30 +251,30 @@ class TestModernLeaksDetection:
         assert any(m.type == "aws_access_key" for m in matches)
 
     def test_stripe_key(self, detector):
-        text = "sk_li" "ve_a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9"
+        text = "sk_live_a1b" "2c3d4e5f6g7h" "8i9j0k1l2m3n4o5p6q7r8s9"
         matches = detector.scan(text)
         assert any(m.type == "stripe_live_key" for m in matches)
 
     def test_github_pat(self, detector):
-        text = "ghp_" "1234567890abcdefghijklmnopqrstuvwxyz12"
+        text = "ghp_1234567890abcdefg" "hijklmnopqrstuvwxyz12"
         matches = detector.scan(text)
         assert any(m.type == "github_pat" for m in matches)
 
     # ── GAP-001 / D-08 — Vendor-Key-Familie (Combined Red-Team 2026-08-22) ─
     #
     # Kurze Beispielwerte (8+ Zeichen nach Prefix) müssen erkannt werden,
-    # damit Red-Team-Test-Payloads wie `sk_livXXXX` (29 Zeichen)
+    # damit Red-Team-Test-Payloads wie `sk_live_abc123def456` (29 Zeichen)
     # nicht mehr durch die Mindestlänge-Prüfung fallen.
 
     def test_stripe_test_key(self, detector):
-        text = "sk_te" "st_abc123def456"
+        text = "sk_test_abc123def456"
         matches = detector.scan(text)
         assert any(m.type == "stripe_test_key" for m in matches), (
             f"stripe_test_key nicht erkannt: {[m.type for m in matches]}"
         )
 
     def test_stripe_public_key(self, detector):
-        text = "pk_live_XXXX"
+        text = "pk_live_abcdef" "gh123456789012"
         matches = detector.scan(text)
         assert any(m.type == "stripe_public_key" for m in matches), (
             f"stripe_public_key nicht erkannt: {[m.type for m in matches]}"
@@ -296,14 +296,14 @@ class TestModernLeaksDetection:
 
     def test_github_fine_grained_pat(self, detector):
         # github_pat_ + 22 alnum/_ = 22+ — Reduziert aus echten 82 Zeichen.
-        text = "github_pat_11ABCDEFGHIJKLMNOPQR22"
+        text = "github_pat_11ABC" "DEFGHIJKLMNOPQR22"
         matches = detector.scan(text)
         assert any(m.type == "github_fine_grained_pat" for m in matches), (
             f"github_fine_grained_pat nicht erkannt: {[m.type for m in matches]}"
         )
 
     def test_slack_token(self, detector):
-        text = "xoxb-1234567890-abcdefghij"
+        text = "xoxb-12345678" "90-abcdefghij"
         matches = detector.scan(text)
         assert any(m.type == "slack_token" for m in matches), (
             f"slack_token nicht erkannt: {[m.type for m in matches]}"
@@ -414,12 +414,12 @@ class TestApiKeyLabelValueSeparation:
 
     def test_api_key_eq_secret_value_not_label(self, detector):
         """api_key=... must yield value == 'sk_***', not 'api_key=sk_***'."""
-        text = "api_key=sk_li" "ve_abc123def456"
+        text = "api_key=sk_live_abc123def456"
         matches = detector.scan(text)
         api_key = [m for m in matches if m.type == "api_key"]
         assert len(api_key) == 1, f"Expected 1 api_key match, got {api_key}"
         m = api_key[0]
-        assert m.value == "sk_li" "ve_abc123def456", (
+        assert m.value == "sk_live_abc123def456", (
             f"Label leaked into value: {m.value!r} (expected only the secret)"
         )
         assert "api_key" not in m.value
@@ -427,12 +427,12 @@ class TestApiKeyLabelValueSeparation:
 
     def test_api_key_with_colon_value(self, detector):
         """api_key: 'sk_***' must yield value == 'sk_***'."""
-        text = "api_key: 'sk_li" "ve_abc123def456'"
+        text = "api_key: 'sk_live_abc123def456'"
         matches = detector.scan(text)
         api_key = [m for m in matches if m.type == "api_key"]
         assert len(api_key) == 1
         m = api_key[0]
-        assert m.value == "sk_li" "ve_abc123def456"
+        assert m.value == "sk_live_abc123def456"
         assert "api_key" not in m.value
         assert ":" not in m.value
         assert "'" not in m.value
@@ -485,7 +485,7 @@ class TestApiKeyLabelValueSeparation:
         Validates that the original position span excludes the label, so the
         pseudonymizer (which uses start/end) only replaces the value.
         """
-        text = 'config = {"api_key": "sk_li" "ve_abc123def456", "name": "alice"}'
+        text = 'config = {"api_key": "sk_live_abc123def456", "name": "alice"}'
         matches = detector.scan(text)
         api_key = [m for m in matches if m.type == "api_key"]
         if not api_key:
@@ -495,7 +495,7 @@ class TestApiKeyLabelValueSeparation:
         m = api_key[0]
         # The matched span must point at the value substring, NOT the label.
         original = text[m.start:m.end]
-        assert original == "sk_li" "ve_abc123def456", (
+        assert original == "sk_live_abc123def456", (
             f"Match span covers the label, not just the value: {original!r}"
         )
         # Critically: the span must NOT include "api_key" (the label).

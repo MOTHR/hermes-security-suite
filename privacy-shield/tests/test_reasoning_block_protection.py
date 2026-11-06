@@ -68,7 +68,7 @@ def off_plugin(tmp_path: Path):
 
 def test_reasoning_fake_api_key_tokenized(plugin):
     """Reasoning mit Fake-API-Key wird durch Token ersetzt."""
-    api_key = "sk_li" "ve_51HvKx2X4QuN9WqT8vYzA3BcD5EfG6H7"
+    api_key = "sk_live_51HvKx2X4QuN" "9WqT8vYzA3BcD5EfG6H7"
     history = [
         {
             "role": "assistant",

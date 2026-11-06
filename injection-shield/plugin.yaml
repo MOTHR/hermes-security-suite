@@ -1,5 +1,5 @@
 name: injection-shield
-version: "0.6.0"
+version: "0.7.1"
 description: >-
   Injection-Shield — Defends Hermes agents against prompt-injection attacks
   via tool outputs and untrusted content. Validates LLM responses, audits
@@ -12,7 +12,7 @@ provides_hooks:
   - post_llm_call
 author: Injection-Shield Maintainers
 license: MIT
-min_hermes_version: "0.20.0"
+requires_hermes: ">=0.21.5"
 # Hook execution priority: larger numbers run later.
 # pre_llm_call must run BEFORE privacy-shield (priority 200) so the
 # prompt-injection firewall sees the original user/tool content before

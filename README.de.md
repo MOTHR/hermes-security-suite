@@ -12,8 +12,8 @@
 
 | Paket | Schutz gegen | Aktuelle Version |
 |---|---|---|
-| [privacy-shield](privacy-shield/README.de.md) | PII-Egress: Namen, E-Mails, Telefonnummern, IBANs, Krypto-Wallets, Tokens leak in LLM-Verkehr, Reasoning-Blöcke, PDFs und Screenshots | **1.7.6** |
-| [injection-shield](injection-shield/README.de.md) | Prompt-Injection: bösartige Anweisungen in Webseiten, Tool-Ergebnissen und LLM-Antworten | **0.6.0** |
+| [privacy-shield](privacy-shield/README.de.md) | PII-Egress: Namen, E-Mails, Telefonnummern, IBANs, Krypto-Wallets, Tokens leak in LLM-Verkehr, Reasoning-Blöcke, PDFs und Screenshots | **1.8.0** |
+| [injection-shield](injection-shield/README.de.md) | Prompt-Injection: bösartige Anweisungen in Webseiten, Tool-Ergebnissen und LLM-Antworten | **0.7.1** |
 
 ## Was die Pakete tun
 

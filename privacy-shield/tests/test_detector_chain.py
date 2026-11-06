@@ -250,7 +250,7 @@ def test_detector_chain_preferred_overlap_jwt_beats_cookie():
 
 def test_detector_chain_typed_credential_over_cookie_same_start():
     """Typed credential at the same start replaces the cookie_id fallback."""
-    api_key_value = "sk_li" "ve_4eC39HqLyjWDarjtT1zdp7dc"
+    api_key_value = "sk_live_4eC39HqL" "yjWDarjtT1zdp7dc"
     chain = DetectorChain(
         [
             _DummyDetector(
@@ -361,7 +361,7 @@ def test_jwt_detector_finds_jwt():
 
 
 def test_ip_detector_finds_ipv4():
-    matches = IPAddressDetector().detect("Server 10.255.255.1 is down")
+    matches = IPAddressDetector().detect("Server 192.168.1.1 is down")
     assert any(m["type"] == "ip_address" for m in matches)
 
 

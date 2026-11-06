@@ -103,7 +103,7 @@
 
 | Aspekt | Beschreibung |
 |---|---|
-| Was? | Plugin fuer Hermes/HigginsOS, das persoenliche Daten vor dem LLM-Call durch Token ersetzt |
+| Was? | Plugin fuer Hermes/Hermes, das persoenliche Daten vor dem LLM-Call durch Token ersetzt |
 | Wie? | Regex-basierte Erkennung + deterministische Tokenisierung + AES-256-GCM-verschluesselte Mapping-Tabelle |
 | Wo? | Lokal auf dem Rechner des Nutzers. Kein Cloud-Call fuer die Erkennung. |
 | Schluesselverwaltung | Verschluesselungsschluessel lokal generiert (pass-Passwort-Store oder Umgebungsvariable). Kein Schluessel in der Cloud. |
@@ -265,7 +265,7 @@
 
 | Aspect | Description |
 |---|---|
-| What? | Plugin for Hermes/HigginsOS that replaces personal data with tokens before the LLM call |
+| What? | Plugin for Hermes/Hermes that replaces personal data with tokens before the LLM call |
 | How? | Regex-based detection + deterministic tokenization + AES-256-GCM-encrypted mapping table |
 | Where? | Locally on the user's computer. No cloud call for detection. |
 | Key management | Encryption key generated locally (pass password store or environment variable). No key in the cloud. |

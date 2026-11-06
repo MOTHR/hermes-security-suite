@@ -166,17 +166,16 @@ Kein Restart von Hermes nötig — die Hooks werden pro Turn geladen.
 ## Deinstallation
 
 ```bash
-# 1. Plugin aus config.yaml entfernen
-sed -i '/injection-shield/d' ~/.hermes/config.yaml
+# 1. Plugin entfernen (entfernt auch den config.yaml-Eintrag + Enabled-Status)
+hermes plugins remove injection-shield
 
-# 2. Symlinks entfernen
+# 2. Profil-Symlinks entfernen
 for profile in <profile1> <profile2>; do  # list your profiles
   rm -f ~/.hermes/profiles/$profile/plugins/injection-shield
 done
 
-# 3. Code + Audit-Log entfernen
-rm -rf ~/.hermes/plugins/injection-shield
-rm -rf ~/.hermes/profiles/*/workspace/logs/prompt-injection-attempts.log*
+# 3. Audit-Log entfernen (optional)
+rm ~/.hermes/profiles/*/workspace/logs/prompt-injection-attempts.log*
 ```
 
 ## Nächste Schritte
@@ -351,17 +350,16 @@ No Hermes restart needed — hooks are loaded per turn.
 ## Uninstallation
 
 ```bash
-# 1. Remove plugin from config.yaml
-sed -i '/injection-shield/d' ~/.hermes/config.yaml
+# 1. Remove the plugin (also removes the config.yaml entry + enabled state)
+hermes plugins remove injection-shield
 
-# 2. Remove symlinks
+# 2. Remove profile symlinks
 for profile in <profile1> <profile2>; do  # list your profiles
   rm -f ~/.hermes/profiles/$profile/plugins/injection-shield
 done
 
-# 3. Remove code + audit log
-rm -rf ~/.hermes/plugins/injection-shield
-rm -rf ~/.hermes/profiles/*/workspace/logs/prompt-injection-attempts.log*
+# 3. Remove the audit log (optional)
+rm ~/.hermes/profiles/*/workspace/logs/prompt-injection-attempts.log*
 ```
 
 ## Next Steps

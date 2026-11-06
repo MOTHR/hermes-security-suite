@@ -10,6 +10,96 @@
   4 Findings (LOW/MEDIUM/INFO, keine Blocker) — Follow-ups: direkte Tests für
   `normalize_text_with_map`/`reanchor_match_offsets` (F2, MEDIUM).
 
+## [1.8.0] - 2026-10-29
+
+### Fix — Dashboard-Self-Load: Plugin-Root statt Bare-Import (PR #25)
+
+- **Dashboard las fremde Kopie**: Der Bare-Import
+  (`from privacy_shield import …`) in `dashboard/plugin_api.py` löste bei
+  einem stale `site-packages`-Editable-Finder auf eine veraltete,
+  fremde Kopie auf — das Desktop-Dashboard las Konfig und State einer
+  anderen Installation statt der eigenen.
+- **Self-Load-Fix**: `dashboard/plugin_api.py` lädt den Plugin-Root jetzt
+  via `importlib.util.spec_from_file_location` unter dem privaten
+  Paketnamen `_privacy_shield_dashboard_own` — garantiert aus dem eigenen
+  Verzeichnis (`Path(__file__).resolve().parent.parent`), unabhängig davon,
+  welche (veraltete) Kopie im Editable-Pfad liegt. `__version__`,
+  Config-, Detector- und Pseudonymizer-Symbole werden aus diesem
+  selbst-geladenen Root bezogen.
+- **mypy-Overrides** (`pyproject.toml`): die dynamische
+  Spec-Load-Struktur des Moduls ist aus `valid-type`/`attr`-Codes
+  ausgespart (7 Zeilen `[[tool.mypy.overrides]]`); statische Analyse
+  bleibt für den Rest der Codebasis unverändert streng.
+## [1.7.6] - 2026-10-29
+
+### Restore-Miss-Platzhalter, Session-Splice-Repair, Kanban-Channel (Dirk-Entscheidungen 2026-10-29)
+
+- **Entscheidung 1 — `restore_miss_strategy` (Default `placeholder`):**
+  Unauflösbare Rest-Tokens im erlaubten Restore-Pfad werden durch den
+  Platzhalter `[maskiertes PII – nicht wiederherstellbar]` (En-Dash U+2013)
+  ersetzt; `keep` belässt das Token wörtlich. Override
+  `restore_miss_placeholder` für EN-Deployments (DE default, EN override).
+  Ungültige Werte → Default mit WARNING (analog `reasoning.mode`).
+  Platzhalter ersetzt ausschließlich den Token-Span — ein am Token klebender
+  Suffix (`..._002dem`) bleibt erhalten. Residual-Pass läuft **nur** hinter
+  dem Channel-Gate; auf nicht erlaubten Channels wird nichts substituiert.
+  Metric: `restore_misses` in `get_metrics()` + Prometheus-Counter
+  `privacy_shield_restore_misses_total`. Log: WARNING
+  `restore_miss (session=…, type=…, serial=…)` — ohne PII, ohne Klartext.
+- **Entscheidung 2 — Session-gebundener Splice-Repair:** Ein vom Modell
+  „gesplictes“ Token (Serial korrekt, Hash/Rest kaputt) wird über
+  `(type_lower, token_serial)` **innerhalb derselben Session** repariert.
+  Eindeutigkeit = **genau ein** unterschiedliches Original unter den
+  Kandidaten (Row-Anzahl irrelevant — 4 Rows / 2 Originale → mehrdeutig →
+  Platzhalter). Kein Cross-Session-Fallback, leerer `session_id` nie
+  reparaturfähig, Legacy-Tokens ohne Serial niemals.
+  Performance-Konzept: PBKDF2 (600k Iterations) ≈ 40–120 ms/Row
+  (host- und backendabhängig — gemessen ~86 ms mit hashlib, ~117 ms mit
+  dem cryptography-Backend) — deshalb
+  neue Spalte `token_serial` (Nullable; `NULL` = unmigriert, `-1` =
+  verarbeitet ohne Serial) + Index `(session_id, type, token_serial)`;
+  `store()` parst den Serial **vor** der Verschlüsselung. Bounded
+  Lazy-Backfill: ≤ 200 Rows pro Auflösung, höchstens einmal pro (session,
+  type), unter dem bestehenden Lock. Operator-Backfill:
+  `scripts/backfill_token_serial.py` (resumable, chunked, mit Fortschritt).
+  Beide Backends (SQLite `MappingTable`, `InMemoryMappingTable`) implementieren
+  den Repair — das In-Memory-Backend parst den Serial ohne Entschlüsselung.
+- **Entscheidung 3 — Channel `kanban`:** `kanban` in
+  `_default_restore_channels()` (Variante a, nur der Bare-Eintrag).
+  Chat-ID-Allowlist (`allowed_chats` / `allowed_chat_ids` / telegram-send)
+  bleibt unverändert die Vertrauensgrenze; `ALLOWED_RESTORE_CHANNELS` in
+  `plugin.py` bleibt leer (kein globales Hardcoding); Tool-Egress (write_file,
+  terminal, MCP, kanban_attach) bleibt ausdrücklich nicht restore-fähig.
+- **FIX-1B erhalten:** `OutputSanitizer.sanitize` behält die
+  2-Tuple-Rückgabe `(text, count)`; die frisch erzeugten Tokens werden über
+  den optionalen Out-Parameter `fresh_tokens` gemeldet und vom
+  Restore-/Splice-/Platzhalter-Pass ausdrücklich nicht angefasst.
+- **Security-Hardening (Review-Feedback PR #26, 2026-11-06):**
+  - **Finding 3f (HIGH, Merge-Blocker)** — `resolve_fuzzy_token` (SQLite)
+    vertraute dem manipulierbaren `token_serial` unverifiziert. Ein Angreifer
+    mit DB-Schreibzugriff konnte den Serial einer Row auf einen fremden Wert
+    setzen und so ein falsches Original restorieren (Cross-Session-Mis-Repair).
+    Fix: Serial-Verifikation im Restore-Pfad — der Serial jeder
+    Kandidaten-Row wird aus deren eigenem Token neu abgeleitet; Mismatch →
+    Row fliegt aus der Kandidatenmenge **und** wird auf den abgeleiteten
+    Serial zurückgesetzt (Angriffszustand bereinigt). PII-frei geloggt als
+    `token_serial integrity violation` (WARNING). Regression:
+    `TestLegacyRowsSqlite::test_attacker_manipulated_serial_fails_closed_and_repairs`.
+  - **Review F4 (MINOR)** — Kandidaten-Query füllt das LIMIT (`max_rows`) →
+    Eindeutigkeit jenseits des Fensters unbeweisbar → fail-closed
+    (Platzhalter). Regression: `test_candidate_window_truncation_fail_closed`.
+  - **Review F5 (MINOR)** — nicht-String `restore_miss_placeholder` aus YAML
+    überlebt den Config-Merge nicht mehr: `isinstance(str)`-Prüfung in
+    `load_config` (Fallback + WARNING) und `validate_config` (Issue).
+  - **Finding 7g (LOW)** — Residual-Pass-Summary: `WARNING` bei `misses > 0`
+    (Security-Monitoring), `INFO` bei reinen Repairs.
+  - **Review F7 (LOW)** — `InMemoryMappingTable.resolve_fuzzy_token` iteriert
+    jetzt eine Snapshot-Kopie der Session-Entries unter dem Lock statt des
+    Live-Dicts (Race mit concurrent `store()`).
+  - `restore_miss` war bereits auf `WARNING` geloggt (Finding 7d: Review-PoC
+    lief gegen die installierte Kopie, nicht gegen den Branch-Source — im
+    Branch-Code belegt: `plugin.py::_resolve_residual_tokens`).
+
 ## [1.7.5] - 2026-10-25
 
 ### Fix — Token-Pattern-Lookbehind entfernt (PS-MASK-006, MEDIUM)
@@ -398,14 +488,14 @@ Security-Hardening-Release: Audit-Follow-up-Gate aus PR #17-Audit.
 
 ### Added
 - **Eigenständiges Repository `MOTHR/hermes-privacy-shield`** — Privacy-Shield
-  wurde aus dem Higgins-Monorepo (`dsgvo-privacy-shield`) ausgegliedert und
+  wurde aus dem Hermes-Monorepo (`dsgvo-privacy-shield`) ausgegliedert und
   ist jetzt ein unabhängiges, versioniertes Python-Package.
 - `README.md` und `docs/INSTALL.md` verweisen jetzt auf das neue Repository
   inklusive `pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.3.2`.
 
 ### Changed
 - Keine funktionalen Code-Änderungen gegenüber dem letzten
-  Higgins-Stand; die Ausgliederung ist ein reines Repository-Move.
+  Hermes-Stand; die Ausgliederung ist ein reines Repository-Move.
 
 ### Migration
 - Bisherige Remote `MOTHR/dsgvo-privacy-shield` bleibt als Archiv erhalten.
@@ -503,7 +593,7 @@ Security-Hardening-Release: Audit-Follow-up-Gate aus PR #17-Audit.
   aktiviert mit Side-channel-Disziplin (kein Klartext-PII, kein roher
   Session-String, bucketed Counts).
 
-## [1.3.0] - 2026-08-22 (Phase 2: Image-OCR Pipeline — P0 HigginsOS)
+## [1.3.0] - 2026-08-22 (Phase 2: Image-OCR Pipeline — P0 Hermes)
 
 ### Added
 - **Phase 2 image OCR** — Privacy-Shield can now process image attachments

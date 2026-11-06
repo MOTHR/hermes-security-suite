@@ -29,7 +29,7 @@ class TestEmailDetection:
         "name@domain.travel",
         "contact@firma-gmbh.de",
         "max.mustermann@example.com",
-        "higgins@agent.one",
+        "hermes@agent.one",
         "privacy@shield.io",
         "admin@localhost.local",
         "user%test@example.com",
@@ -122,8 +122,8 @@ class TestPhoneDetection:
         "abcdefghijk",
         "",
         "just text",
-        # FP regression 2026-09-20: merovinger Telegram-Delivery tokenized
-        # "20260920" inside a vault file path (TOKEN_PHONE_d4a6fa120b_012-...).
+        # FP regression 2026-09-20: an agent's Telegram delivery tokenized
+        # "20260920" inside a vault file path (TOKEN_PHONE_a19c5640da_015-...).
         # 8-digit date/id blocks with no separator are not phone numbers.
         "Analyse-File: 03-Market-Analysis/20260920-BTC-Regime-Grid-Analyse-v1.md",
         "20260920-BTC-Regime-Grid-Analyse-v1.md",
@@ -158,7 +158,7 @@ class TestIPDetection:
     """IP address detection: v4 + v6."""
 
     IPV4_POSITIVE = [
-        "192.169.1.2",
+        "192.168.1.1",
         "10.0.0.1",
         "172.16.0.1",
         "8.8.8.8",
@@ -166,7 +166,7 @@ class TestIPDetection:
         "255.255.255.255",
         "0.0.0.0",
         "127.0.0.1",
-        "192.168.178.99",
+        "192.168.178.1",
         "10.10.10.10",
         "172.31.255.255",
         "169.254.0.1",
@@ -212,11 +212,11 @@ class TestIPDetection:
             assert len(ip_matches) == 0, f"False positive IP: {text}"
 
     def test_ip_in_context(self, detector):
-        text = "Server at 192.169.1.1 is down."
+        text = "Server at 192.168.1.1 is down."
         matches = detector.scan(text)
         ip_matches = [m for m in matches if m.type == "ip_address"]
         assert len(ip_matches) == 1
-        assert ip_matches[0].value == "192.169.1.1"
+        assert ip_matches[0].value == "192.168.1.1"
 
 
 # ── IBAN Tests (25 examples) ────────────────────────────────────────────
@@ -651,7 +651,7 @@ class TestIntegration:
         assert "phone" in types
 
     def test_mixed_pii_ip_iban(self, detector):
-        text = "Server: 192.169.1.1, Konto: DE89370400440532013000"
+        text = "Server: 192.168.1.1, Konto: DE89370400440532013000"
         matches = detector.scan(text)
         types = {m.type for m in matches}
         assert "ip_address" in types
@@ -801,7 +801,7 @@ class TestExplainabilityRule:
         assert phone_matches[0].rule == "regex:phone"
 
     def test_regex_ip_has_rule(self, detector):
-        matches = detector.scan("10.255.255.1")
+        matches = detector.scan("192.168.1.1")
         ip_matches = [m for m in matches if m.type == "ip_address"]
         assert len(ip_matches) >= 1
         assert ip_matches[0].rule == "regex:ip_address"

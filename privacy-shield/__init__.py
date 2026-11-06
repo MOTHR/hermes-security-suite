@@ -1,12 +1,10 @@
-"""Privacy-Shield Plugin — PII pseudonymization for Hermes/Higgins.
+"""Privacy-Shield Plugin — PII pseudonymization for Hermes.
 
 Phase 1: Limited-Risk + Regex-Detection + Core-Hook Fail-Safe.
 
-Architecture: Plugin (~/.hermes/plugins/privacy-shield/) + thin Core-Hook
-(pre_llm_call in run_agent.py). Defense-in-Depth per Spec v1.0 Section 4.
-
-Spec reference:
-  docs/architecture.md
+Architecture: Plugin (~/.hermes/plugins/privacy-shield/) + Hermes hook
+interface (pre_llm_call). Defense-in-Depth per internal AI-Act architecture
+spec, v1, Section 4 (not published).
 """
 
 from __future__ import annotations
@@ -19,7 +17,9 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-__version__ = "1.7.5"
+
+__version__ = "1.8.0"
+
 __plugin_id__ = "privacy-shield"
 
 # ---------------------------------------------------------------------------
@@ -242,7 +242,8 @@ def register(ctx: Any) -> None:
     ) -> None:
         """on_session_finalize hook: purge the session's mappings.
 
-        Retention = session lifetime (DSGVO Art. 5(1)(e), Dirk 2026-10-10).
+        Retention = session lifetime (DSGVO Art. 5(1)(e); operator decision,
+        2026-10-10).
         Fired by Hermes core at real session boundaries — notably ``/new``
         (reason="new_session"). NOT purged for reason="shutdown": a
         gateway restart is a PROCESS restart, the CONVERSATION continues

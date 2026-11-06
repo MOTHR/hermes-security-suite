@@ -88,6 +88,37 @@ def _compile_token_pattern(
     return re.compile(pattern)
 
 
+def _parse_token_serial(token: str, pattern: "re.Pattern[str]") -> int | None:
+    """Extract the session serial from a plaintext token string.
+
+    v1.7.6 (Decision 2): tokens have the shape
+    ``{PREFIX}_{TYPE}_{HASH}_{SERIAL:03d}`` (e.g. ``TOKEN_BIC_bf0eb3800c_001``).
+    ``TYPE`` may contain underscores and the serial is a session-scoped
+    counter (000-999) that is NOT globally unique — the counter restarts on
+    pseudonymizer LRU eviction, so ``(type, serial)`` collisions inside one
+    session are expected (10 colliding pairs observed in a 92-row session).
+
+    Returns the serial as ``int``, or ``None`` when the token does not match
+    the pattern or carries the legacy no-counter shape (group 3 absent).
+    Legacy tokens never qualify for splice repair (fail-closed).
+    """
+    if not token:
+        return None
+    match = pattern.fullmatch(token)
+    if match is None:
+        return None
+    serial = match.group(3)
+    if serial is None or not serial.isdigit():
+        return None
+    return int(serial)
+
+
+# sentinel persisted into ``token_serial`` for rows that were processed by
+# the backfill but whose plaintext token carries no serial (legacy shape).
+# NULL still means "not yet processed".
+TOKEN_SERIAL_ABSENT = -1
+
+
 class MappingTable:
     """SQLite-backed mapping table with AES-256-GCM encryption.
 
@@ -144,6 +175,10 @@ class MappingTable:
             hash_length=hash_length,
             counter_digits=counter_digits,
         )
+        # v1.7.6 (Decision 2): (session_id, type) pairs whose token_serial
+        # backfill already ran — the lazy backfill may run at most ONCE per
+        # pair to keep the PBKDF2 cost bounded (600k iterations ≈ 43 ms/row).
+        self._serial_backfill_done: set[tuple[str, str]] = set()
         self._init_db()
 
     def _token_hash(self, token: str) -> str:
@@ -251,6 +286,15 @@ class MappingTable:
                     conn.execute("ALTER TABLE mappings ADD COLUMN token_hash TEXT NOT NULL DEFAULT ''")
                 except sqlite3.OperationalError:
                     pass  # Column already exists
+                # v1.7.6 (Decision 2): session-scoped splice repair needs the
+                # serial without decrypting. token_serial is NULL for rows not
+                # yet processed by the (bounded, lazy) backfill and
+                # TOKEN_SERIAL_ABSENT (-1) for processed rows whose plaintext
+                # token has no serial (legacy no-counter shape).
+                try:
+                    conn.execute("ALTER TABLE mappings ADD COLUMN token_serial INTEGER")
+                except sqlite3.OperationalError:
+                    pass  # Column already exists
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_mappings_hash
                     ON mappings(original_hash)
@@ -266,6 +310,10 @@ class MappingTable:
                 conn.execute("""
                     CREATE INDEX IF NOT EXISTS idx_mappings_token_hash
                     ON mappings(token_hash)
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_mappings_session_type_serial
+                    ON mappings(session_id, type, token_serial)
                 """)
                 conn.commit()
             finally:
@@ -375,11 +423,15 @@ class MappingTable:
                     encrypted_token = self._encrypt(token)
                     encrypted_original = self._encrypt(m.get("original_value", ""))
                     token_hash = self._token_hash(token)
+                    # v1.7.6 (Decision 2): persist the serial BEFORE encryption
+                    # so the splice-repair candidate query never has to decrypt
+                    # the token column.
+                    token_serial = _parse_token_serial(token, self.token_pattern)
                     conn.execute(
                         """INSERT INTO mappings
                            (original_hash, original_encrypted, token_encrypted, token_hash, type,
-                            created_at, expires_at, session_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            created_at, expires_at, session_id, token_serial)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                         (
                             m["original_hash"],
                             encrypted_original,
@@ -389,6 +441,7 @@ class MappingTable:
                             now,
                             expires_at,
                             session_id,
+                            token_serial,
                         ),
                     )
                 conn.commit()
@@ -589,6 +642,229 @@ class MappingTable:
             if plaintext:
                 results.add(plaintext)
         return results
+
+    def backfill_token_serial(
+        self,
+        session_id: str,
+        pii_type: str,
+        max_rows: int = 200,
+    ) -> int:
+        """Bounded lazy backfill of ``token_serial`` for one (session, type).
+
+        v1.7.6 (Decision 2): rows written before this migration carry
+        ``token_serial IS NULL``. This helper decrypts at most ``max_rows``
+        (hard cap 200) such rows for the given (session_id, type) combination,
+        re-derives the serial from the decrypted plaintext token, and
+        persists it — all under the existing instance lock. It runs at most
+        once per (session, type) for the lifetime of this instance so a hot
+        restore path cannot repeatedly pay the PBKDF2 cost (~43 ms/row at
+        600k iterations). NEVER decrypts the whole table: a 61k-row
+        full-table scan would take ~45 min.
+
+        Rows whose plaintext token has no serial (legacy no-counter shape)
+        are stamped ``TOKEN_SERIAL_ABSENT`` (-1) so later calls skip them;
+        they will never qualify for splice repair (fail-closed).
+
+        Returns the number of rows updated.
+        """
+        if not session_id or not pii_type:
+            return 0
+        max_rows = min(max_rows, 200)
+        key = (session_id, pii_type)
+        with self._lock:
+            if key in self._serial_backfill_done or max_rows <= 0:
+                return 0
+            updated = 0
+            conn = self._open_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT id, token_encrypted FROM mappings "
+                    "WHERE session_id = ? AND type = ? AND token_serial IS NULL "
+                    "ORDER BY id LIMIT ?",
+                    (session_id, pii_type, max_rows),
+                ).fetchall()
+                for row_id, encrypted_token in rows:
+                    try:
+                        token = self._decrypt(encrypted_token)
+                    except Exception:
+                        # Undecryptable row: mark processed, no repair.
+                        conn.execute(
+                            "UPDATE mappings SET token_serial = ? WHERE id = ?",
+                            (TOKEN_SERIAL_ABSENT, row_id),
+                        )
+                        updated += 1
+                        continue
+                    serial = _parse_token_serial(token, self.token_pattern)
+                    conn.execute(
+                        "UPDATE mappings SET token_serial = ? WHERE id = ?",
+                        (serial if serial is not None else TOKEN_SERIAL_ABSENT, row_id),
+                    )
+                    updated += 1
+                if updated:
+                    conn.commit()
+                    logger.info(
+                        "backfill_token_serial: %d rows updated (session=<%d chars>, type=%s)",
+                        updated, len(session_id), pii_type,
+                    )
+            finally:
+                conn.close()
+            # Mark done even when rows remain NULL (row cap) or none existed —
+            # the promise is "at most once per (session, type)".
+            self._serial_backfill_done.add(key)
+        return updated
+
+    def backfill_token_serial_chunk(self, max_rows: int = 200) -> int:
+        """One resumable global backfill chunk (operator CLI helper).
+
+        Processes up to ``max_rows`` rows with ``token_serial IS NULL``
+        across ALL sessions/types in a single transaction, regardless of
+        the per-(session, type) lazy marker — the CLI owns its resumability
+        by looping until this returns 0. Returns rows processed.
+        """
+        max_rows = min(max_rows, 1000)
+        if max_rows <= 0:
+            return 0
+        with self._lock:
+            processed = 0
+            conn = self._open_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT id, token_encrypted FROM mappings "
+                    "WHERE token_serial IS NULL ORDER BY id LIMIT ?",
+                    (max_rows,),
+                ).fetchall()
+                for row_id, encrypted_token in rows:
+                    try:
+                        token = self._decrypt(encrypted_token)
+                    except Exception:
+                        conn.execute(
+                            "UPDATE mappings SET token_serial = ? WHERE id = ?",
+                            (TOKEN_SERIAL_ABSENT, row_id),
+                        )
+                        processed += 1
+                        continue
+                    serial = _parse_token_serial(token, self.token_pattern)
+                    conn.execute(
+                        "UPDATE mappings SET token_serial = ? WHERE id = ?",
+                        (serial if serial is not None else TOKEN_SERIAL_ABSENT, row_id),
+                    )
+                    processed += 1
+                if processed:
+                    conn.commit()
+            finally:
+                conn.close()
+        return processed
+
+    def resolve_fuzzy_token(
+        self,
+        pii_type: str,
+        serial: int,
+        session_id: str,
+        max_rows: int = 50,
+    ) -> str | None:
+        """Session-scoped splice repair: resolve ``(type, serial)`` → original.
+
+        v1.7.6 (Decision 2): a model-mangled token (correct serial, broken
+        hash/prefix) is repaired from same-session candidates keyed by
+        ``(session_id, type, token_serial)`` via the SQLite index.
+
+        Uniqueness contract: exactly ONE distinct original value among the
+        candidates → restore; 0 or ≥ 2 distinct originals → ``None`` (the
+        caller substitutes the restore-miss placeholder). Row count is
+        irrelevant — 4 rows with 2 distinct originals are ambiguous.
+
+        Security: candidates restricted to the exact ``session_id`` (no
+        cross-session fallback, never resolves with empty ``session_id``);
+        ``pii_type`` is compared lowercased against the lowercase DB column.
+        Integrity (v1.7.6 security fix, Finding 3f): ``token_serial`` is NOT
+        trusted as authoritative — each candidate row's serial is re-derived
+        from its own decrypted ``token_encrypted`` and must match the stored
+        column value; mismatched rows are excluded from the candidate set AND
+        repaired back to the content-derived serial (an attacker with DB write
+        access can otherwise point one row's serial at a foreign original —
+        repairing the row also cleans the attack state). This costs one extra
+        decryption per candidate row on the already-slow fuzzy-repair path.
+        Fail-closed truncation (v1.7.6 security fix, Review F4): when the
+        candidate query hits ``max_rows`` the set may be truncated beyond
+        uniqueness, so the result is inconclusive → ``None`` (placeholder).
+        Performance: at most one bounded lazy backfill (≤ 200 rows, once per
+        (session, type)) plus bounded decryptions of ``original_encrypted``
+        and ``token_encrypted`` per call — the PII plaintext original is only
+        decrypted after a row passed serial verification.
+        """
+        if not session_id or not pii_type:
+            return None
+        if not isinstance(serial, int) or serial < 0:
+            return None
+        normalized_type = pii_type.lower()
+        self.backfill_token_serial(session_id, normalized_type)
+        now = time.time()
+        with self._lock:
+            conn = self._open_conn()
+            try:
+                rows = conn.execute(
+                    "SELECT id, token_encrypted, token_serial, original_encrypted, expires_at "
+                    "FROM mappings "
+                    "WHERE session_id = ? AND type = ? AND token_serial = ? "
+                    "ORDER BY id LIMIT ?",
+                    (session_id, normalized_type, serial, max_rows),
+                ).fetchall()
+            finally:
+                conn.close()
+        # F4 fail-closed: a full candidate window means the true candidate set
+        # may extend beyond the LIMIT — uniqueness cannot be established.
+        if len(rows) >= max_rows:
+            logger.debug(
+                "resolve_fuzzy_token: candidate window exhausted (limit=%d, session=<%d chars>, "
+                "type=%s) — fail-closed",
+                max_rows, len(session_id), normalized_type,
+            )
+            return None
+        originals: set[str] = set()
+        repairs: list[tuple[int, int]] = []
+        for row_id, encrypted_token, stored_serial, encrypted_original, expires_at in rows:
+            if expires_at and expires_at > 0 and expires_at < now:
+                continue
+            if not encrypted_original:
+                continue
+            # Finding 3f: re-derive the serial from the row's own token.
+            content_serial: int | None = None
+            if encrypted_token:
+                try:
+                    content_serial = _parse_token_serial(
+                        self._decrypt(encrypted_token), self.token_pattern
+                    )
+                except Exception:
+                    content_serial = None
+            if content_serial != stored_serial:
+                if content_serial is not None:
+                    # SQL parameter order: SET token_serial = ?, WHERE id = ?
+                    repairs.append((content_serial, row_id))
+                    logger.warning(
+                        "Privacy-Shield: token_serial integrity violation "
+                        "(row=%d, stored_serial=%d, derived_serial=%d) — repaired, row excluded",
+                        row_id, stored_serial if stored_serial is not None else -1, content_serial,
+                    )
+                continue
+            try:
+                plaintext = self._decrypt(encrypted_original)
+            except Exception:
+                continue
+            if plaintext:
+                originals.add(plaintext)
+        if repairs:
+            with self._lock:
+                conn = self._open_conn()
+                try:
+                    conn.executemany(
+                        "UPDATE mappings SET token_serial = ? WHERE id = ?", repairs
+                    )
+                    conn.commit()
+                finally:
+                    conn.close()
+        if len(originals) == 1:
+            return next(iter(originals))
+        return None
 
     def restore_text(self, text: str, session_id: str = "") -> str:
         """Restore tokens in text back to original PII values.
@@ -859,6 +1135,56 @@ class InMemoryMappingTable:
         if time.time() > expires_at:
             return None
         return original
+
+    def resolve_fuzzy_token(
+        self,
+        pii_type: str,
+        serial: int,
+        session_id: str = "",
+        max_rows: int = 50,
+    ) -> str | None:
+        """Session-scoped splice repair for the in-memory backend.
+
+        v1.7.6 (Decision 2): tokens are stored in plaintext keyed by token
+        string, so the serial is parsed directly via ``token_pattern`` — no
+        backfill and no decryption needed. Same uniqueness contract as
+        ``MappingTable.resolve_fuzzy_token``: exactly one distinct original
+        among the TTL-live ``(type, serial)`` candidates, never across
+        sessions, fail-closed on empty ``session_id`` or non-numeric serial.
+        """
+        if not session_id or not pii_type:
+            return None
+        if not isinstance(serial, int) or serial < 0:
+            return None
+        normalized_type = pii_type.lower()
+        now = time.time()
+        # Snapshot the session entries under the lock (Review F7): iterating
+        # the live dict outside the lock raced with concurrent store() and
+        # silently degraded repair to a miss.
+        with self._lock:
+            session_items = list(self._store.get(session_id, {}).items())
+        originals: set[str] = set()
+        for token, (original, expires_at) in session_items:
+            if expires_at and expires_at > 0 and expires_at < now:
+                continue
+            if not original:
+                continue
+            match = self.token_pattern.fullmatch(token)
+            if match is None:
+                continue
+            if match.group(1).lower() != normalized_type:
+                continue
+            token_serial = match.group(3)
+            if token_serial is None or not token_serial.isdigit():
+                continue
+            if int(token_serial) != serial:
+                continue
+            originals.add(str(original))
+            if len(originals) > 1 or len(originals) >= max_rows:
+                break
+        if len(originals) == 1:
+            return next(iter(originals))
+        return None
 
     def count(self) -> int:
         with self._lock:

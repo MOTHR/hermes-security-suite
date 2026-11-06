@@ -3,8 +3,10 @@
   "label": "Privacy-Shield",
   "description": "PII pseudonymization/restore for Hermes. Backend config API for the Privacy-Shield Controls desktop pane (mode: off/audit/restore, restore channels, thresholds).",
   "icon": "Shield",
-  "version": "1.7.0",
-  "tab": { "hidden": true },
-  "entry": "dist/index.js",
+  "version": "1.8.0",
+  "tab": {
+    "hidden": true
+  },
+  "entry": "desktop/plugin.js",
   "api": "plugin_api.py"
 }

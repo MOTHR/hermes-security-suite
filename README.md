@@ -12,8 +12,8 @@
 
 | Package | What it protects against | Current release |
 |---|---|---|
-| [privacy-shield](privacy-shield/README.md) | PII egress: names, emails, phones, IBANs, crypto wallets, tokens leak into LLM traffic, reasoning blocks, PDFs and screenshots | **1.7.6** |
-| [injection-shield](injection-shield/README.md) | Prompt injection: malicious instructions hidden in web pages, tool results, and LLM responses | **0.6.0** |
+| [privacy-shield](privacy-shield/README.md) | PII egress: names, emails, phones, IBANs, crypto wallets, tokens leak into LLM traffic, reasoning blocks, PDFs and screenshots | **1.8.0** |
+| [injection-shield](injection-shield/README.md) | Prompt injection: malicious instructions hidden in web pages, tool results, and LLM responses | **0.7.1** |
 
 ## What each package does
 

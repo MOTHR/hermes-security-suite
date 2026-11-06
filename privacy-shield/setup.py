@@ -52,7 +52,7 @@ class develop(_develop):
 
 
 # Keep this file minimal: all metadata lives in pyproject.toml. setup.py only
-# exists to attach the desktop install hook via cmdclass.
+# exists to attach the desktop-plugin install hook via cmdclass.
 setup(
     cmdclass={
         "install": install,

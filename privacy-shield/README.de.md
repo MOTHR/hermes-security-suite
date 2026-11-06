@@ -1,10 +1,10 @@
 # Privacy-Shield
 
-🌐 Deutsch | [English](README.md)
+🌐 [Deutsch](README.de.md) | English
 
 DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (PII) in sichtbarem LLM-Output und Reasoning-Inhalten.
 
-**Version:** 1.7.0 (2026-09-09) — 58 Erkennungsmuster · 820 Tests · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
+**Version:** 1.8.0 (2026-11-06) — 58 Erkennungsmuster · 1066 Tests · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
 
 ## Features
 
@@ -25,9 +25,9 @@ DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (P
 
 ```bash
 # 1. Installieren (via Git — GitHub-Zugang erforderlich)
-pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
+pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.6
 # oder für Entwicklung mit editierbarem Source
-pip install -e .  # in der Monorepo-Paketwurzel ausgefuehrt
+pip install -e .
 
 # 2. Encryption-Key generieren (einmalig)
 python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
@@ -86,6 +86,60 @@ plugins:
 
 **Limitationen:** Siehe [`docs/reasoning-protection.md`](docs/reasoning-protection.md) für die vollständige Liste der Design-Limitationen und Mitigationsschritte.
 
+### Restore-Miss-Behandlung, Splice-Repair, Kanban-Channel (v1.7.6)
+
+Tokens, die im erlaubten Restore-Pfad nicht auflösbar sind, bleiben nicht
+mehr stehen: Mit `restore_miss_strategy: placeholder` (Default) werden sie
+durch `[maskiertes PII – nicht wiederherstellbar]` ersetzt (deutscher
+Default-Text; `restore_miss_placeholder` als Override für EN-Deployments —
+der Text ersetzt ausschließlich den Token-Span, geklebte Suffixe bleiben
+erhalten). Jeder Miss wird PII-frei geloggt (WARNING: Session/Typ/Serial,
+kein Token-String, kein Klartext) und gezählt (`restore_misses` in
+`get_metrics()`, Prometheus `privacy_shield_restore_misses_total`).
+`keep` erhält das bisherige Verhalten (Token wörtlich stehen lassen).
+
+Ein vom Modell verunstaltetes Token (Serial korrekt, Hash kaputt) wird über
+`(Typ, Serial)` **innerhalb derselben Session** repariert: genau **ein**
+unterschiedliches Kandidat-Original → Original eingesetzt; 0 oder ≥ 2
+verschiedene Originale (Kollisionen durch Counter-Restart bei LRU-Eviction
+sind erwartet) → Restore-Miss-Platzhalter. Niemals über Session-Grenzen;
+Legacy-Tokens ohne Serial werden nie repariert (fail-closed). Die
+Mapping-Tabelle erhält eine Nullable-Spalte `token_serial` plus Index
+`(session_id, type, token_serial)`; ein begrenzter Lazy-Backfill migriert
+Legacy-Rows (≤ 200 Rows, höchstens einmal pro (Session, Typ)), und
+`scripts/backfill_token_serial.py` konvergiert die ganze Tabelle offline
+(resumable, chunked, mit Fortschritt — ein komplettes Entschlüsseln einer
+61k-Row-Tabelle ist host- und backendabhängig (PBKDF2 ~40–120 ms/Row;
+~86 ms mit hashlib, ~117 ms mit dem cryptography-Backend auf dem
+Deploy-Host), weshalb operative Pfade nur wenige Rows pro Query
+entschlüsseln).
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      restore_miss_strategy: placeholder   # placeholder | keep
+      restore_miss_placeholder: "[masked PII – cannot be restored]"  # optionaler EN-Override
+      restore_allowed_channels: ["telegram", "desktop", "cli", "kanban"]
+```
+
+> **Achtung — expliziter Override ersetzt die komplette Default-Liste:**
+> Ein explizites `restore_allowed_channels` in der Konfiguration ersetzt die
+> gesamte Default-Liste (`_merge_user_config` überschreibt das ganze Tupel —
+> kein Auto-Merge). Ein expliziter Eintrag **ohne** `kanban` deaktiviert die
+> Kanban-Wiederherstellung stillschweigend — `kanban` in jeden expliziten
+> Eintrag aufnehmen, der weiterhin restoren soll.
+
+`kanban` ist jetzt ein Default-Restore-Channel, damit board-sichtbare
+Antworten die Originalwerte zurückholen dürfen. **Vertrauensgrenze
+unverändert:** Die Chat-ID-Allowlist (`allowed_chats` /
+`allowed_chat_ids` / telegram-send Limits) regelt weiter, wer restaurierte
+PII empfängt; ergänzt wurde nur der eine Channel-Eintrag. Tool-Egress
+(write_file, terminal, MCP, kanban_attach) bleibt ausdrücklich
+restore-frei. Das Fresh-PII-Verhalten ist erhalten (FIX-1B):
+Sanitizer-erzeugte Tokens für neue Leaks bleiben sichtbar und werden weder
+restauriert noch mit dem Platzhalter ersetzt.
+
 ## Architektur
 
 ```
@@ -120,7 +174,7 @@ User sieht Original-Daten (nur in whitelisted Channels)
 ## Sicherheit
 
 - **4 Review-Runden** (unabhängige Profile: Research, Validation, Architektur, Operations, Memory, System-Admin)
-- **820 Tests grün** (CI: 3.10/3.11/3.12 + lint + mypy strict + security)
+- **1066 Tests grün** (CI: 3.10/3.11/3.12 + lint + mypy strict + security)
 - **0 offene CRITICAL/HIGH/MEDIUM-Findings**
 - **AES-256-GCM** mit PBKDF2 100k Iterations
 - **Egress-Whitelist** verhindert versehentliche PII-Leaks
@@ -215,7 +269,7 @@ python3 scripts/setup_profiles.py
 ```bash
 python3 scripts/sync_version.py          # auf plugin.yaml-Version syncen
 python3 scripts/sync_version.py --check  # CI-Gate: exit 1 bei Drift
-python3 scripts/sync_version.py --set 1.7.0  # alle drei Dateien hochzählen
+python3 scripts/sync_version.py --set 1.7.6  # alle drei Dateien hochzählen
 ```
 
 ## Lizenz
@@ -224,7 +278,7 @@ MIT License — siehe [LICENSE](LICENSE).
 
 ## Support
 
-- Repository: https://github.com/MOTHR/hermes-security-suite (suite monorepo)
+- Repository: https://github.com/MOTHR/hermes-privacy-shield
 - Issues: GitHub Issues
 - DSGVO-Fragen: docs/AVV-Checkliste.md
 
