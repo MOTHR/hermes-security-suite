@@ -105,7 +105,7 @@ jobs:
         run: |
           mkdir -p /tmp/mypy_pkg
           ln -sfn "$PWD" /tmp/mypy_pkg/privacy_shield
-          TOKEN_BIC_905570f3cc_000=/tmp/mypy_pkg mypy --strict --ignore-missing-imports \
+          MYPYPATH=/tmp/mypy_pkg TOKEN_BIC_905570f3cc_000=/tmp/mypy_pkg mypy --strict --ignore-missing-imports \
             --exclude '/(tests|scripts|docs|build)/' -p privacy_shield
 
   security:
