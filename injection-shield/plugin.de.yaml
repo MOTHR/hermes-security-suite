@@ -3,4 +3,4 @@ version: "0.7.1"
 description: >-
   Injection-Shield — Verteidigt Hermes-Agenten gegen Prompt-Injection-Angriffe
   über Tool-Ausgaben und nicht vertrauenswürdige Inhalte. Validiert LLM-Antworten,
-  auditiert riskante Tool-Aufrufe. Modi: block / alert / log.
+  auditiert riskante Tool-Aufrufe. Modi: audit / enforcement.
