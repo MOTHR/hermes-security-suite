@@ -7,6 +7,5 @@
   "tab": {
     "hidden": true
   },
-  "entry": "desktop/plugin.js",
   "api": "plugin_api.py"
 }
