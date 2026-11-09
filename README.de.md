@@ -110,6 +110,15 @@ plugins:
         min_severity: medium
 ```
 
+## Secrets — Tresor-Integration
+
+Funktioniert mit deinem Tresor, nicht gegen ihn. Hermes unterstützt nativ [1Password](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/onepassword) (`op://`-Referenzen über die offizielle CLI), [Bitwarden Secrets Manager](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/bitwarden) (`bws`-CLI) und einen generischen [Command-Helper](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/command) für beliebige Tresor-CLIs. Die Suite ergänzt zwei Plugin-Secret-Sources für die Ökosysteme, die der Hermes-Kern nicht bündelt:
+
+- [`hermes-keychain-secret-source`](https://github.com/MOTHR/hermes-keychain-secret-source) — der macOS-Schlüsselbund
+- [`hermes-pass-store-secret-source`](https://github.com/MOTHR/hermes-pass-store-secret-source) — der UNIX password-store (`pass`)
+
+Jede Quelle ordnet Environment-Variablen über `config.yaml` Tresor-Einträgen zu, klassifiziert Auth-/Fehl-/Binary-Fehler und überschreibt nie Werte, die du selbst in Shell oder `.env` gesetzt hast. Beliebig kombinierbar — Hermes regelt Precedence und Provenance automatisch.
+
 ## Compliance & Reporting
 
 - DSGVO out of the box: AVV-Checkliste und Verzeichnis-Vorlage ([`privacy-shield/docs/dsgvo-mapping.md`](privacy-shield/docs/dsgvo-mapping.md))

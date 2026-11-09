@@ -110,6 +110,15 @@ plugins:
         min_severity: medium
 ```
 
+## Secrets — vault integration
+
+Works with your vault, not against it. Hermes natively supports [1Password](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/onepassword) (`op://` references via the official CLI), [Bitwarden Secrets Manager](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/bitwarden) (`bws` CLI), and a generic [command helper](https://hermes-agent.nousresearch.com/docs/user-guide/secrets/command) for any CLI vault. The suite adds two plugin secret-sources for the ecosystems Hermes core doesn't bundle:
+
+- [`hermes-keychain-secret-source`](https://github.com/MOTHR/hermes-keychain-secret-source) — the macOS Keychain
+- [`hermes-pass-store-secret-source`](https://github.com/MOTHR/hermes-pass-store-secret-source) — the UNIX password-store (`pass`)
+
+Each maps environment variables to vault entries via `config.yaml`, classifies auth vs. missing vs. broken-binary errors, and never overrides values you've set in your shell or `.env`. Enable any combination — Hermes handles precedence and provenance between sources automatically.
+
 ## Compliance & reporting
 
 - GDPR/DSGVO out of the box: processor-agreement checklist and records template ([`privacy-shield/docs/dsgvo-mapping.md`](privacy-shield/docs/dsgvo-mapping.md))
