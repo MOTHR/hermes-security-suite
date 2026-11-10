@@ -21,6 +21,20 @@ DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (P
 - **Cache-Bypass-Tag** für lokale Lesevorgänge (lokale Daten = kein Shield)
 - **DSGVO-Konformität** — Out-of-the-box mit AVV-Checkliste + VVT-Vorlage
 
+## History-Masking (v1.9.2)
+
+Der Shield deckt **jede User-Message** eines ausgehenden LLM-Requests ab, nicht nur den aktuellen Turn: Live-Prompt, frühere Konversations-Turns (Strings und Multimodal-`text`/`input_text`-Parts) sowie der Sidecar-Kontext-Suffix (Memory-Prefetch, Plugin-Kontext) werden gescannt und tokenisiert — pro Message einmal pro Turn. Ein Turn-scoped Per-Message-Memo hält die Kosten bei einem Scan pro Message pro Turn, auch wenn der Core die Middleware pro API-Attempt neu feuert.
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      mask_history: true            # Default on; false reproduziert das alte Live-Prompt-only-Verhalten
+      mask_sidecar_suffix: true     # Default on; false erhält Sidecar-Kontext byte-exakt
+```
+
+**Bekannte Limitation (P4):** Summary-/Aux-Calls des Hermes-Core (Iterations-/Chat-/Codex-Summaries) bauen ihre Provider-Kwargs direkt und bypassen die `llm_request`-Middleware des Plugins — sie bleiben unmaskiert, bis der Upstream-Core-PR alle Request-Bau-Seams durch die Middleware routet (Option c).
+
 ## Quickstart (5 Minuten)
 
 ```bash

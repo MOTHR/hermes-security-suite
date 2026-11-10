@@ -34,6 +34,14 @@ settings:
     type: int
     default: 1000
     description: "Max concurrent sessions before LRU eviction of their salts and tokens."
+  - name: mask_history
+    type: bool
+    default: true
+    description: "R-1: mask ALL user messages of an outgoing request (live prompt + conversation history), not only the current turn. Default on per R-1 design decision; Ollama-local stays exempt. Off-switch for performance-sensitive deployments."
+  - name: mask_sidecar_suffix
+    type: bool
+    default: true
+    description: "R-1: scan + mask the sidecar context suffix (memory prefetch, plugin context) behind the live prompt instead of keeping it byte-exact. Default on per R-1 design decision."
   - name: confidence_threshold
     type: float
     default: 0.8

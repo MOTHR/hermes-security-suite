@@ -7,6 +7,7 @@ Spec reference: Privacy-Shield-AI-Act-Architektur-Spec-v1.md Section 3.1
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 from pathlib import Path
@@ -626,38 +627,112 @@ class PrivacyShieldPlugin:
         return result
 
     def _sidecar_rewrite(self, content: str, staged: dict[str, Any]) -> str | None:
-        """Rewrite ONLY the live-prompt portion of a sidecar-composed message.
+        """Rewrite the live-prompt portion of a sidecar-composed message.
 
         The core composes the wire content as ``live_prompt + "\\n\\n" + context``
         (``agent/turn_context.py`` compose_user_api_content) BEFORE the
         middleware runs. Replacing the whole string would drop injected
-        context (firewall, prefetch, gateway notes; orakel F-2). Instead:
-        when the content starts with the raw live prompt, re-append the
-        byte-exact context suffix. Otherwise (unknown shape) fall back to
-        masking the entire string — never return unmasked content.
+        context (firewall, prefetch, gateway notes; orakel F-2). When the
+        content starts with the raw live prompt, the live portion is
+        replaced by the staged sanitized prompt; the bytes behind it — the
+        sidecar suffix — are scanned + masked when ``mask_sidecar_suffix``
+        is on (R-1/P3) or kept byte-exact when the flag is off. Unknown
+        shapes fall back to masking the entire string — never return
+        unmasked content.
         """
         sanitized = staged.get("sanitized", "")
         raw = staged.get("raw_prompt") or ""
         if raw and content.startswith(raw):
-            result = sanitized + content[len(raw):]
-            return result if isinstance(result, str) else None
+            suffix = content[len(raw):]
+            if suffix and self.config.mask_sidecar_suffix:
+                masked_suffix, _count, _types = self._mask_user_text(
+                    suffix, staged.get("session_id", "")
+                )
+                result: str = sanitized + masked_suffix
+                return result
+            return sanitized + suffix
         # Fallback: mask the full wire content (context included). The
         # context parts are not restorable tokens-bearing text by design;
         # masking them whole is fail-safe, not fail-open.
-        detections = self.detector.scan(content)
-        masked_hits, _dropped = self._partition_by_confidence(detections)
-        if not masked_hits:
+        masked, count, _types = self._mask_user_text(
+            content, staged.get("session_id", "")
+        )
+        if not count:
             return None
-        masked, mapping = self.pseudonymizer.replace(
-            content, masked_hits, session_id=staged.get("session_id", "")
-        )
-        self.mapper.store(
-            mapping, session_id=staged.get("session_id", ""),
-            ttl_seconds=self.config.mapping_ttl_seconds,
-        )
-        self._log_detections(mapping, staged.get("session_id", ""))
         masked_result: str | None = masked if isinstance(masked, str) else None
         return masked_result
+
+    # ── R-1 history masking (Option b, design report t_cf276f36) ─────────
+
+    _MEMO_MAX = 256  # hard cap: turn-scoped memo, entries = distinct messages
+
+    def _memo_key(self, session_id: str, text: str) -> str:
+        return hashlib.sha256(f"{session_id}\x00{text}".encode()).hexdigest()
+
+    def _reset_memo_if_new_turn(self, turn_id: str) -> None:
+        """Drop the per-message memo when a new turn starts.
+
+        Lifetime = Turn (design report §4(b)): the memo exists so the core's
+        per-attempt payload rebuild does NOT rescan every history byte per
+        api attempt (tool loops fire the middleware 10-30x per turn). A new
+        turn re-scans and re-stores fresh mapping rows (newest-row-wins
+        lookup + fresh ``expires_at``), which is what keeps the restore
+        contract alive.
+        """
+        if turn_id != getattr(self, "_memo_turn", None):
+            self._memo_turn = turn_id
+            self._memo_cache = {}
+            self._memo_audited = False
+
+    def _mask_user_text(self, text: str, session_id: str) -> tuple[str, int, list[str]]:
+        """Scan + mask one user text outside the staged live prompt.
+
+        Covers history turns and (when ``mask_sidecar_suffix`` is on) the
+        sidecar suffix. Memoized per ``(session_id, content-hash)`` with
+        turn lifetime: same content -> same deterministic mask, computed
+        once per turn per message. Returns ``(new_text, masked_count,
+        pii_types)``; ``new_text == text`` when nothing was masked.
+        """
+        key = self._memo_key(session_id, text)
+        memo: dict[str, tuple[str, int, list[str]]] = getattr(
+            self, "_memo_cache", {}
+        )
+        if key in memo:
+            return memo[key]
+        hits = self.detector.scan(text)
+        masked_hits, dropped = self._partition_by_confidence(hits)
+        if dropped:
+            self._log_dropped_detections(dropped, session_id)
+        if not masked_hits:
+            entry: tuple[str, int, list[str]] = (text, 0, [])
+        else:
+            masked, mapping = self.pseudonymizer.replace(
+                text, masked_hits, session_id=session_id
+            )
+            self.mapper.store(
+                mapping,
+                session_id=session_id,
+                ttl_seconds=self.config.mapping_ttl_seconds,
+            )
+            self._log_detections(mapping, session_id)
+            entry = (
+                masked,
+                len(mapping),
+                [m.get("type", "unknown") for m in mapping],
+            )
+        if len(memo) >= self._MEMO_MAX:
+            memo.pop(next(iter(memo)))
+        memo[key] = entry
+        return entry
+
+    @staticmethod
+    def _set_span(msg: dict[str, Any], idx: int | None, text: str) -> None:
+        """Write a masked text back: whole content (idx None) or one part."""
+        if idx is None:
+            msg["content"] = text
+        else:
+            part = msg["content"][idx]
+            msg["content"][idx] = {**part, "text": text}
 
     def apply_shield_to_request(
         self,
@@ -669,77 +744,151 @@ class PrivacyShieldPlugin:
         platform: str = "",
         turn_id: str = "",
     ) -> dict[str, Any] | None:
-        """Rewrite the user message of an outgoing LLM request with the
-        staged sanitized prompt (``llm_request`` middleware callback).
+        """Rewrite the USER MESSAGES of an outgoing LLM request (``llm_request``
+        middleware callback).
 
-        The core fires this middleware once PER api attempt of the turn and
-        rebuilds each payload from the raw messages — the staged slot is
-        therefore read-only here, and every attempt re-applies the mask
-        (orakel review t_c0a50b6f F-1/F-2). Returns ``{"request": request}``
-        when the rewrite was applied, ``None`` when nothing should change
-        (no staged shield, local provider, or no user message found). The
-        middleware contract only propagates a payload under the ``request``
-        key.
+        R-1 (design report ``11-R1-History-Masking-Design.md``, Option b):
+        ALL user messages — the live prompt AND earlier conversation-history
+        turns (string or multimodal ``text``/``input_text`` parts) — are
+        masked (``mask_history``, default on), plus the sidecar suffix bytes
+        behind the live prompt (``mask_sidecar_suffix``, default on). Without
+        a staged shield — live prompt PII-free or a turn-id mismatch — every
+        user message is scanned standalone: exactly the scenario in which
+        R-1 let raw history PII egress. The core fires this middleware once
+        PER api attempt and rebuilds each payload from the raw messages, so
+        the staged slot is read-only here and a turn-scoped per-message memo
+        keeps the re-scan cheap (orakel review t_c0a50b6f F-1/F-2).
+        Returns ``{"request": request}`` when a rewrite was applied, ``None``
+        when nothing should change. The middleware contract only propagates
+        a payload under the ``request`` key.
         """
         staged = self._read_staged_shield(turn_id)
-        if not staged:
-            return None
-        sanitized = staged.get("sanitized", "")
-        if not sanitized:
-            return None
         if provider in ("ollama_local", "ollama"):
             # Local model traffic is exempt from pseudonymization.
+            return None
+        if not self.config.enabled:
+            return None
+        if self.config.mode not in ("limited", "strict", "paranoid"):
+            # audit mode is detection-only, off is off: neither may rewrite
+            # the wire — including the standalone (no-staged) scan below.
+            return None
+        if staged is not None and not staged.get("sanitized"):
+            staged = None
+        mask_history = self.config.mask_history
+        if staged is None and not mask_history:
             return None
 
         messages = request.get("messages") if isinstance(request, dict) else None
         if not isinstance(messages, list):
             return None
+        self._reset_memo_if_new_turn(turn_id)
+
+        audit_session = session_id or (staged or {}).get("session_id", "")
         applied = False
+        live_via_staged = False
+        live_seen = False
+        standalone_count = 0
+        standalone_types: list[str] = []
+
         for msg in reversed(messages):
             if not (isinstance(msg, dict) and msg.get("role") == "user"):
                 continue
             content = msg.get("content")
-            if isinstance(content, str):
-                rewritten = self._sidecar_rewrite(content, staged)
-                if rewritten is None:
-                    return None
-                msg["content"] = rewritten
-                applied = True
-            elif isinstance(content, list):
-                for idx, part in enumerate(content):
-                    if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
-                        rewritten = self._sidecar_rewrite(str(part.get("text", "")), staged)
-                        if rewritten is None:
-                            return None
-                        msg["content"][idx] = {**part, "text": rewritten}
-                        applied = True
-                        break
-                if not applied:
-                    return None
-            else:
-                return None
-            break
-        else:
-            return None
+            is_live = not live_seen
+            live_seen = True
 
-        if applied and self.audit is not None and not staged.get("audited"):
+            if isinstance(content, str):
+                spans: tuple[tuple[int | None, str], ...] = ((None, content),)
+            elif isinstance(content, list):
+                spans = tuple(
+                    (idx, str(part.get("text", "")))
+                    for idx, part in enumerate(content)
+                    if isinstance(part, dict)
+                    and part.get("type") in ("text", "input_text")
+                )
+            else:
+                # Unknown wire shape. v1.9.1 aborted the middleware here;
+                # with history masking a single opaque message must not
+                # suppress masking of the remaining user messages.
+                if not mask_history:
+                    return None
+                continue
+
+            if is_live:
+                # The core composes raw_prompt (+ suffix) as the FIRST text
+                # span of the live message; every further text span belongs
+                # to the sidecar context (suffix territory, orakel F-2/P3).
+                prompt_spans = spans[:1]
+                suffix_spans = spans[1:]
+            else:
+                prompt_spans = spans
+                suffix_spans = ()
+
+            if is_live and staged is not None and prompt_spans:
+                idx, text = prompt_spans[0]
+                rewritten = self._sidecar_rewrite(text, staged)
+                if rewritten is not None:
+                    self._set_span(msg, idx, rewritten)
+                    applied = True
+                    live_via_staged = True
+                    prompt_spans = ()
+                    if not mask_history:
+                        break  # v1.9.1 contract: only the live message
+                elif not mask_history:
+                    return None
+                else:
+                    # Fail-safe fallback scan found no hits on this span.
+                    prompt_spans = ()
+
+            if mask_history:
+                for idx, text in prompt_spans:
+                    masked, count, types = self._mask_user_text(text, audit_session)
+                    if count:
+                        self._set_span(msg, idx, masked)
+                        applied = True
+                        standalone_count += count
+                        standalone_types.extend(types)
+                if self.config.mask_sidecar_suffix:
+                    for idx, text in suffix_spans:
+                        masked, count, types = self._mask_user_text(text, audit_session)
+                        if count:
+                            self._set_span(msg, idx, masked)
+                            applied = True
+                            standalone_count += count
+                            standalone_types.extend(types)
+
+        if applied and self.audit is not None:
             # One "applied" event per turn (per-attempt rewrites share it).
-            staged["audited"] = True
-            self.audit.log(
-                event="pseudonymization_applied",
-                session_id=session_id or staged.get("session_id", ""),
-                masked_count=staged.get("masked_count", 0),
-                pii_types=staged.get("pii_types", []),
-                mode=self.config.mode,
-                model=model or staged.get("model", ""),
-                platform=platform or staged.get("platform", ""),
-            )
+            # The staged slot carries the gate for a staged live rewrite
+            # across attempts; the turn-scoped memo flag covers standalone
+            # (no-staged) rewrites — both must fire at most once per turn.
+            already_audited = bool(staged and staged.get("audited"))
+            if not already_audited and not getattr(self, "_memo_audited", False):
+                if staged:
+                    staged["audited"] = True
+                self._memo_audited = True
+                live_staged = staged if live_via_staged and staged else None
+                staged_masked = live_staged.get("masked_count", 0) if live_staged else 0
+                staged_types = live_staged.get("pii_types", []) if live_staged else []
+                self.audit.log(
+                    event="pseudonymization_applied",
+                    session_id=audit_session,
+                    masked_count=staged_masked + standalone_count,
+                    pii_types=list(staged_types) + standalone_types,
+                    mode=self.config.mode,
+                    model=model or (staged or {}).get("model", ""),
+                    platform=platform or (staged or {}).get("platform", ""),
+                )
         logger.info(
-            "Privacy-Shield: %d PII replacements in prompt (%d chars -> %d chars)",
-            staged.get("masked_count", 0),
-            staged.get("orig_len", 0),
-            len(sanitized),
+            "Privacy-Shield: %d PII replacements in request messages "
+            "(staged %d, standalone %d)",
+            (staged.get("masked_count", 0) if live_via_staged and staged else 0)
+            + standalone_count,
+            staged.get("masked_count", 0) if staged else 0,
+            standalone_count,
         )
+        if not applied:
+            return None
         return {"request": request}
 
     def _log_detections(self, mapping: list[dict[str, Any]], session_id: str) -> None:

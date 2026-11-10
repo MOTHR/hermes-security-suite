@@ -171,11 +171,17 @@ class TestMiddlewareApplication:
         assert result is None
         assert request["messages"][2]["content"] == PII_PROMPT
 
-    def test_no_staged_shield_leaves_request_untouched(self, tmp_path):
+    def test_no_staged_shield_masks_history_standalone(self, tmp_path):
+        """R-1 Option b: with no staged shield (e.g. a clean live prompt) the
+        middleware must NOT pass the request through untouched — it scans all
+        user messages standalone so raw history PII never egresses. The
+        legacy live-prompt-only behavior remains via mask_history=false."""
         plugin = _make_plugin(tmp_path)
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
-        assert plugin.apply_shield_to_request(request, provider="anthropic") is None
-        assert request["messages"][2]["content"] == PII_PROMPT
+        result = plugin.apply_shield_to_request(request, provider="anthropic")
+        assert result is not None
+        assert "max.mustermann@firma-gmbh.de" not in request["messages"][2]["content"]
+        assert "TOKEN_EMAIL_" in request["messages"][2]["content"]
 
     def test_staged_slot_persists_across_attempts(self, tmp_path):
         """Orakel review t_c0a50b6f F-1 regression: the core rebuilds the
@@ -196,9 +202,13 @@ class TestMiddlewareApplication:
 
     def test_sidecar_context_suffix_survives(self, tmp_path):
         """Orakel F-2 regression: the wire content carries the core's sidecar
-        (raw live prompt + '\\n\\n' + injected context). The rewrite must keep
-        the context suffix byte-exact, not replace the whole message."""
+        (raw live prompt + '\\n\\n' + injected context). With
+        ``mask_sidecar_suffix=False`` the rewrite keeps the context suffix
+        byte-exact, not replace the whole message (R-1 Option b: with the
+        flag on — the new default — the suffix is scanned and masked, see
+        tests/test_history_masking.py)."""
         plugin = _make_plugin(tmp_path)
+        plugin.config.mask_sidecar_suffix = False
         _run_shield(plugin, turn_id="turnX")  # stages sanitized for the raw PII prompt
         stage = plugin._staged_shield
         context_suffix = "\n\nPROMPT INJECTION FIREWALL (injected context)"
@@ -231,12 +241,20 @@ class TestMiddlewareApplication:
     def test_empty_turn_id_cannot_read_foreign_shield(self, tmp_path):
         """Smith review t_5d7e23ce/001: an empty turn_id is NOT a wildcard —
         a surface that loses its turn id must not read another turn's staged
-        mask (cross-turn contamination)."""
+        mask (cross-turn contamination). R-1 Option b: the middleware still
+        scans standalone (its own mask), but the output must not equal the
+        foreign turn's staged mask."""
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turn-A")
+        foreign_mask = plugin._staged_shield["sanitized"]
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
-        assert plugin.apply_shield_to_request(request, provider="anthropic", turn_id="") is None
-        assert request["messages"][2]["content"] == PII_PROMPT
+        result = plugin.apply_shield_to_request(request, provider="anthropic", turn_id="")
+        assert result is not None, "standalone scan must still mask"
+        content = request["messages"][2]["content"]
+        assert "max.mustermann@firma-gmbh.de" not in content
+        assert content != foreign_mask, (
+            "an id-less surface must not receive another turn's staged mask"
+        )
 
     def test_both_empty_turn_ids_still_match(self, tmp_path):
         """Both ids empty (surfaces without turn ids) match — the local
@@ -249,13 +267,19 @@ class TestMiddlewareApplication:
         assert "max.mustermann@firma-gmbh.de" not in request["messages"][2]["content"]
 
     def test_turn_mismatch_does_not_apply_stale_shield(self, tmp_path):
+        """A stale staged shield must not be applied to a foreign turn.
+        R-1 Option b: instead of leaking raw PII, the middleware masks via
+        its own standalone scan (different session than the staged one)."""
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turnA")
+        stale_mask = plugin._staged_shield["sanitized"]
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
         assert plugin.apply_shield_to_request(
             request, provider="anthropic", turn_id="turnB"
-        ) is None
-        assert request["messages"][2]["content"] == PII_PROMPT
+        ) is not None
+        content = request["messages"][2]["content"]
+        assert "max.mustermann@firma-gmbh.de" not in content
+        assert content != stale_mask
 
     def test_audit_applied_event_only_on_real_rewrite(self, tmp_path):
         plugin = _make_plugin(tmp_path)

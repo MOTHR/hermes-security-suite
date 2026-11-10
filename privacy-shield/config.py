@@ -180,6 +180,18 @@ class PrivacyShieldConfig:
     vault_tool_prefixes: tuple[str, ...] = ("mcp__obsidian__",)
     cache_bypass: bool = True
 
+    # R-1 History-Masking (Design-Report t_cf276f36 §4(b)/§6, Dirk-GO):
+    # mask_history maskiert ALLE User-Messages eines ausgehenden Requests
+    # (Live-Prompt + Conversation-History, str + Multimodal-Text-Parts) —
+    # nicht nur den Live-Prompt. Ollama-Exemption wie bisher (lokale Models
+    # verlassen die Maschine nicht). mask_sidecar_suffix scannt die Bytes
+    # HINTER dem Live-Prompt (Memory-Prefetch, Plugin-Kontext) statt sie
+    # byte-exakt zu erhalten. Beide Flags sind bewusst Off-Switches für
+    # Performance-sensible Deployments; Default on (silent R-1-Defekt
+    # vermeiden), Version-Bump/Release erst nach Review.
+    mask_history: bool = True
+    mask_sidecar_suffix: bool = True
+
     # Performance
     max_latency_ms: int = 80
     fallback_on_timeout: str = "block"  # "block" | "allow_unshielded"

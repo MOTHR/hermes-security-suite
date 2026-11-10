@@ -1,5 +1,39 @@
 ## [Unreleased]
 
+### R-1: History-Masking (Option b — Design-Report `03-Projects/Hermes-Plugins/security-suite-hackathon150309/11-R1-History-Masking-Design.md`, Dirk-GO)
+
+- **P2 geschlossen**: `apply_shield_to_request` maskiert jetzt ALLE User-Messages
+  des ausgehenden Requests (str + Multimodal `text`/`input_text`-Parts), nicht
+  mehr nur den Live-Prompt. Neu: auch OHNE Staged-Slot (Live-Prompt PII-frei
+  oder Turn-ID-Mismatch) werden alle User-Messages unabhängig gescannt und
+  maskiert — genau das Szenario, in dem R-1 rohe History-PII rausließ.
+- **P3 geschlossen (Suite-Pfad)**: neues Flag `mask_sidecar_suffix` (Default on)
+  scannt die Bytes HINTER dem Live-Prompt (Memory-Prefetch, Plugin-Kontext)
+  statt sie byte-exakt zu erhalten. Unbekannte Wire-Shapes bleiben fail-safe
+  (Full-Mask).
+- **Per-Message-Memo**: Key `session_id + SHA-256(content)` → Masking-Ergebnis,
+  Lifetime = Turn (kein Persistent-Cache, Hard-Cap 256 Einträge): der Core
+  baut das Payload pro API-Attempt neu, die Detektor-Kette läuft damit einmal
+  pro Turn pro Message statt pro Attempt (Tool-Loop 10–30×). Pro Turn werden
+  frische Mapping-Zeilen geschrieben (newest-row-wins + frisches `expires_at`)
+  — Restore-Vertrag bleibt intakt.
+- **Config-Flags**: `mask_history` (Default **on**, Ollama-Exemption wie
+  bisher; Off-Switch für Performance-sensible Deployments) und
+  `mask_sidecar_suffix`. `mask_history: false` reproduziert exakt die
+  v1.9.1-Semantik (nur Live-Prompt).
+- **P4 bleibt offen** (dokumentiert in README): Summary-/Aux-Calls (Iteration-/
+  Chat-/Codex-/Anthropic-Summary) bypassen die `llm_request`-Middleware
+  strukturell — schließbar nur durch den Upstream-Core-PR (Option c).
+- Audit: ein `pseudonymization_applied`-Event pro Turn — jetzt auch für
+  Standalone-History-Maskierung ohne Staged-Slot (statt Stillstand).
+- Tests: History-Masking-Regressionen (2 User-Messages mit PII, Multimodal,
+  Ollama-Exemption, Memo-Idempotenz pro Attempt, Turn-Reset). Drei Bestand-
+  Tests, die die alte „kein Staged → Request unverändert"-Semantik kodierten,
+  wurden auf die neue Semantik umgestellt (der R-1-Defekt war genau diese
+  Semantik). Version-Bump + Release erst nach Review.
+
+<!-- previous entries below -->
+
 ## [1.9.1] - 2026-11-10
 
 ### Review-Welle 1+2 (Orakel/Smith/Seraph, PR #150309): Masking-Layer-Härtung

@@ -34,6 +34,11 @@ from privacy_shield.pseudonymizer import Pseudonymizer  # noqa: E402
 p.detector = RegexPIIDetector(code_context_penalty=0.0)
 p.pseudonymizer = Pseudonymizer(token_style=cfg.token_style, token_prefix=cfg.token_prefix)
 p.audit = None
+# R-1 Option b (t_37828862): seit dem History-Masking-Fix scannt der
+# Default (mask_sidecar_suffix=True) die Bytes hinter dem Live-Prompt —
+# der byte-exakte F-2-Kontrakt gilt jetzt mit dem Flag OFF (Suffix-Maskierung
+# regressionsgetestet in tests/test_history_masking.py).
+cfg.mask_sidecar_suffix = False
 
 
 def make_result(prompt):

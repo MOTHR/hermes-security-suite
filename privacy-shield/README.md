@@ -21,6 +21,20 @@ DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visibl
 - **Cache-bypass tag** for local reads (local data = no shield)
 - **GDPR compliance** — out-of-the-box with processor agreement checklist + records template
 
+## History Masking (v1.9.2)
+
+The shield covers **every user message** of an outgoing LLM request, not only the current turn: live prompt, earlier conversation turns (strings and multimodal `text`/`input_text` parts) and the sidecar context suffix (memory prefetch, plugin context) are scanned and tokenized per turn for each message. A turn-scoped per-message memo keeps the cost at one scan per message per turn, even when the core re-fires the middleware per API attempt.
+
+```yaml
+plugins:
+  entries:
+    privacy-shield:
+      mask_history: true            # default on; false reproduces the old live-prompt-only behavior
+      mask_sidecar_suffix: true     # default on; false keeps sidecar context byte-exact
+```
+
+**Known limitation (P4):** Hermes-core summary/aux calls (iteration/chat/codex summaries) build their provider kwargs directly and bypass this plugin's `llm_request` middleware — they stay unmasked until the upstream core PR routes all request-building seams through the middleware (Option c).
+
 ## Quickstart (5 minutes)
 
 ```bash

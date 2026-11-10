@@ -19,7 +19,7 @@
 
 ### [privacy-shield](privacy-shield/README.md) — GDPR-compliant PII tokenizer
 
-Replaces personal data with deterministic tokens (`TOKEN_EMAIL_a3f8b2c41d_003`) before the provider sees it, and restores originals **only** in channels you whitelist. Fail-closed: anything unresolvable degrades to `[masked PII]`, never to plaintext.
+Replaces personal data with deterministic tokens (`TOKEN_EMAIL_a3f8b2c41d_003`) in **every user message of an outgoing LLM request** — live prompt, conversation history and sidecar context (`mask_history`, default on) — before the provider sees it, and restores originals **only** in channels you whitelist. Fail-closed: anything unresolvable degrades to `[masked PII]`, never to plaintext. Known residual gap: Hermes-core summary/aux calls (iteration/chat/codex summaries) bypass the plugin middleware (P4) and stay unmasked until the upstream core PR (Option c).
 
 **Detection & processing**
 - **58 detection patterns** across 7 categories: email, phone, IBAN, crypto wallets, JWT/OAuth tokens, GitHub PATs, MAC/IMEI/IMSI and more
