@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__version__ = "0.7.1"  # SSO — see pyproject.toml [tool.setuptools.dynamic]
+__version__ = "0.8.0"  # SSO — see pyproject.toml [tool.setuptools.dynamic]
 
 try:
     from .plugin import InjectionShieldPlugin
@@ -144,7 +144,39 @@ def register(ctx: Any) -> None:
             tokens=tokens,
         )
 
+    def on_transform_tool_result(
+        *,
+        tool_name: str = "",
+        result: str = "",
+        session_key: str = "",
+        session_id: str = "",
+        **kwargs: Any,
+    ) -> str | None:
+        return plugin.transform_tool_result(
+            tool_name=tool_name,
+            result=result,
+            session_key=_canonical_session_key(
+                session_key=session_key, session_id=session_id
+            ),
+        )
+
+    def on_transform_llm_output(
+        *,
+        response_text: str = "",
+        session_key: str = "",
+        session_id: str = "",
+        **kwargs: Any,
+    ) -> str | None:
+        return plugin.transform_llm_output(
+            response_text=response_text,
+            session_key=_canonical_session_key(
+                session_key=session_key, session_id=session_id
+            ),
+        )
+
     ctx.register_hook("pre_tool_call", on_pre_tool_call)
     ctx.register_hook("post_tool_call", on_post_tool_call)
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
     ctx.register_hook("post_llm_call", on_post_llm_call)
+    ctx.register_hook("transform_tool_result", on_transform_tool_result)
+    ctx.register_hook("transform_llm_output", on_transform_llm_output)

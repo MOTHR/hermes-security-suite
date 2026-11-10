@@ -15,11 +15,15 @@ def plugin(tmp_path) -> InjectionShieldPlugin:
 
 def test_blocks_credential_leak_in_enforcement(plugin: InjectionShieldPlugin) -> None:
     plugin.mode = "enforcement"
-    result = plugin.post_llm_call(
-        {"text": "Here is the key: sk-abcdefghijklmnopqrstuvwxyz123456"}
+    # v0.8.0: the suppression moved to transform_llm_output — post_llm_call
+    # fires AFTER delivery, so its return is ignored and only audits/alerts.
+    result = plugin.transform_llm_output(
+        "Here is the key: sk-abcdefghijklmnopqrstuvwxyz123456"
     )
     assert result is not None
-    assert "BLOCKED" in result["text"]
+    assert "BLOCKED" in result
+    # post_llm_call remains an observer (audit + alert)
+    assert plugin.post_llm_call({"text": "Here is the key: sk-abcdefghijklmnopqrstuvwxyz123456"}) is None
 
 
 def test_audit_only_in_audit_mode(plugin: InjectionShieldPlugin) -> None:

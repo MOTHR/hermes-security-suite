@@ -1,15 +1,19 @@
 name: injection-shield
-version: "0.7.1"
+version: "0.8.0"
 description: >-
   Injection-Shield — Defends Hermes agents against prompt-injection attacks
   via tool outputs and untrusted content. Validates LLM responses, audits
   risky tool calls. Modes: audit / enforcement.
 api: dashboard/plugin_api.py
+requires_env:
+  - INJECTION_SHIELD_TELEGRAM_BOT_TOKEN
 provides_hooks:
   - pre_tool_call
   - post_tool_call
   - pre_llm_call
   - post_llm_call
+  - transform_tool_result
+  - transform_llm_output
 author: Injection-Shield Maintainers
 license: MIT
 requires_hermes: ">=0.21.5"
@@ -17,17 +21,21 @@ requires_hermes: ">=0.21.5"
 # pre_llm_call must run BEFORE privacy-shield (priority 200) so the
 # prompt-injection firewall sees the original user/tool content before
 # PII pseudonymization masks it as TOKEN_<TYPE>_<hash>_<counter>.
-# post_llm_call runs AFTER privacy-shield's transform_llm_output (200)
-# so token restoration has happened and the LLM output contains real PII
-# for credential-leak scanning.
+# transform_llm_output (150) runs BEFORE privacy-shield's transform_llm_output
+# (200) so a suppressed output never reaches the token-restore pass;
+# post_llm_call runs AFTER that restore pass as a pure audit/observer layer.
 hook_priority:
   pre_llm_call: 100
   post_tool_call: 150
+  transform_tool_result: 100
+  transform_llm_output: 150
   post_llm_call: 200
 # Telegram alerting is opt-in. To enable alerts set ``chat_id`` in
 # ~/.hermes/config.yaml under plugins.entries.injection-shield.telegram
-# OR export INJECTION_SHIELD_TELEGRAM_CHAT_ID in the shell. Telegram bot
-# token remains the standard TELEGRAM_BOT_TOKEN env var.
+# OR export INJECTION_SHIELD_TELEGRAM_CHAT_ID in the shell. The bot token
+# is the plugin's own secret INJECTION_SHIELD_TELEGRAM_BOT_TOKEN
+# (requires_env; resolved via agent.secret_scope) — never the gateway's
+# TELEGRAM_BOT_TOKEN.
 settings:
   - name: telegram.enabled
     type: bool

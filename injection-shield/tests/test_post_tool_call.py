@@ -23,18 +23,20 @@ def v0_6_0_plugin(tmp_path) -> InjectionShieldPlugin:
 
 @pytest.mark.parametrize("tool_name", ["web_extract", "web_search"])
 def test_wraps_untrusted_sources(plugin: InjectionShieldPlugin, tool_name: str) -> None:
-    result = plugin.post_tool_call(tool_name, "Some malicious content")
+    # v0.8.0: the wrap moved from post_tool_call (return ignored by core)
+    # to transform_tool_result (first plain-string return replaces the result).
+    result = plugin.transform_tool_result(tool_name, "Some malicious content")
     assert result is not None
-    assert "<untrusted_tool_result" in result["result"]
-    assert f'source="{tool_name}"' in result["result"]
-    assert "Some malicious content" in result["result"]
+    assert "<untrusted_tool_result" in result
+    assert f'source="{tool_name}"' in result
+    assert "Some malicious content" in result
 
 
 def test_wraps_mcp_tools(plugin: InjectionShieldPlugin) -> None:
-    result = plugin.post_tool_call("mcp__browseos__read", "Page content")
+    result = plugin.transform_tool_result("mcp__browseos__read", "Page content")
     assert result is not None
-    assert "<untrusted_tool_result" in result["result"]
-    assert 'source="mcp__browseos__read"' in result["result"]
+    assert "<untrusted_tool_result" in result
+    assert 'source="mcp__browseos__read"' in result
 
 
 def test_egress_check_logs_non_whitelisted_domain(plugin: InjectionShieldPlugin) -> None:
@@ -79,13 +81,18 @@ def test_scans_terminal_for_zero_width(plugin: InjectionShieldPlugin) -> None:
     assert "zero_width" in log
 
 
-def test_read_file_is_now_untrusted(v0_6_0_plugin: InjectionShieldPlugin) -> None:
+def test_reads_file_wrap_in_transform(v0_6_0_plugin: InjectionShieldPlugin) -> None:
     """v0.6.0 (GAP-6): read_file output is untrusted and gets tagged.
 
     Previously a pass-through; file contents are attacker-controllable
     (vault files, downloaded docs) and must be treated as untrusted
     input, exactly like web content.
     """
-    result = v0_6_0_plugin.post_tool_call("read_file", "file content")
+    result = v0_6_0_plugin.transform_tool_result("read_file", "file content")
     assert result is not None
-    assert "<untrusted_tool_result" in result["result"]
+    assert "<untrusted_tool_result" in result
+
+
+def test_post_tool_call_returns_none_for_untrusted(plugin: InjectionShieldPlugin) -> None:
+    """post_tool_call is an observer now — no value shaping, no wrap."""
+    assert plugin.post_tool_call("web_extract", "Some malicious content") is None

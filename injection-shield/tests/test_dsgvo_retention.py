@@ -323,7 +323,7 @@ async def test_alert_telegram_does_nothing_when_disabled(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """With no chat_id configured, no Telegram API call is attempted —
-    even if a fake ``TELEGRAM_BOT_TOKEN`` is in the environment.
+    even if a fake ``INJECTION_SHIELD_TELEGRAM_BOT_TOKEN`` is resolved.
     """
     p = InjectionShieldPlugin(profile="default")
     p.audit_log = tmp_path / "audit.log"
@@ -338,7 +338,7 @@ async def test_alert_telegram_does_nothing_when_disabled(
         raise AssertionError("must not call requests.post when disabled")
 
     monkeypatch.setattr(requests, "post", fake_post)
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN", "fake-token")
 
     p._alert_telegram("hello", violations=[{"severity": "critical"}])
     assert called["value"] is False
@@ -359,6 +359,6 @@ async def test_alert_telegram_does_nothing_without_chat_id(
         raise AssertionError("must not call requests.post without chat_id")
 
     monkeypatch.setattr(requests, "post", fake_post)
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "fake-token")
+    monkeypatch.setenv("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN", "fake-token")
 
     p._alert_telegram("hello", violations=[{"severity": "critical"}])

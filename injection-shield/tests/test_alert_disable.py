@@ -37,7 +37,7 @@ def test_alert_enabled_via_env_sends_normally(plugin: InjectionShieldPlugin, mon
     """ENV unset -> alert path runs (send attempted when configured)."""
     monkeypatch.delenv("INJECTION_SHIELD_ALERT_DISABLE", raising=False)
     plugin.telegram_cfg = {"enabled": True, "chat_id": "12345", "min_severity": "medium"}
-    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "test-token")
+    monkeypatch.setenv("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN", "test-token")
     with patch("requests.post") as mock_post:
         mock_post.return_value.status_code = 200
         plugin._alert_telegram("🚨 test alert", [{"type": "credential_leak", "severity": "critical"}])

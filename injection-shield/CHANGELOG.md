@@ -9,6 +9,33 @@ cross-references the review-ID it closes.
 
 ---
 
+## [0.8.0] — 2026-11-10 (Hackathon-Review, NousResearch PR #150309): pure upstream hook contracts
+
+- **Own Telegram secret**: alerts resolve
+  `INJECTION_SHIELD_TELEGRAM_BOT_TOKEN` via `agent.secret_scope.get_secret`
+  (`requires_env` in plugin.yaml) — the plugin no longer reads the gateway's
+  foreign `TELEGRAM_BOT_TOKEN` from `os.environ`.
+- **Hooks moved to consumed contracts** (three of four returns were ignored
+  by the core at HEAD — only `pre_tool_call` actually blocked):
+  - `pre_llm_call` now returns `{"context": FIREWALL_TEXT}` (+ the
+    enforcement zero-width warning) instead of `{"messages": [...]}`.
+  - The untrusted-result wrap (GAP-6 scan + tag) moved from `post_tool_call`
+    (return ignored) to a new `transform_tool_result` hook returning the
+    wrapped plain string; `post_tool_call` is now audit/alert observer only.
+  - The enforcement output block moved from `post_llm_call` (fires AFTER
+    delivery) to a new `transform_llm_output` hook returning the
+    `[BLOCKED …]` replacement string; `provides_hooks` updated accordingly.
+- **No install-time side effects**: `setup.py` cmdclass removed — Hermes
+  ships `desktop/` + `dashboard/` itself via `hermes plugins install/enable`.
+- **Dependency upper bounds**: `pyyaml>=6.0,<7.0`, `requests>=2.28,<3.0`
+  and `<next-major` bounds on all dev/test extras.
+- Test fixes: registration contract for the two new transform hooks,
+  scan-once test updated (untrusted results scanned exactly once in
+  `transform_tool_result`), stale enforcement payload replaced with one the
+  hardened CredentialLeakDetector actually matches.
+
+---
+
 ## [0.7.1] — 2026-11-06 (public readiness: unified desktop package + LICENSE + security policy)
 
 ### Changed

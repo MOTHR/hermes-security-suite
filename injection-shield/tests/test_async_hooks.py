@@ -67,11 +67,11 @@ def test_pre_llm_call_async_returns_firewall_injected_messages(plugin: Injection
     ]
     result = plugin.pre_llm_call(messages, session_key="ash-pre-001")
     assert result is not None, "pre_llm_call must return a dict, not None"
-    new_messages = result["messages"]
-    # System message preserved, firewall inserted after it, user message last.
-    assert new_messages[0]["content"] == "You are a helpful assistant."
-    assert FIREWALL_TEXT in new_messages[1]["content"]
-    assert new_messages[2]["role"] == "user"
+    # v0.8.0 upstream contract: the firewall rides as {"context": ...} —
+    # messages are never returned/rewritten by this hook.
+    assert FIREWALL_TEXT in result["context"]
+    assert "helpful assistant" not in result["context"]
+    assert "Hello there" not in result["context"]
 
 
 def test_pre_llm_call_async_session_key_is_hashed_in_audit_log(plugin: InjectionShieldPlugin) -> None:
@@ -169,14 +169,19 @@ def test_post_llm_call_async_enforcement_blocks_and_replaces_text(plugin: Inject
     for the established payload shape.
     """
     plugin.mode = "enforcement"
-    response = {"text": "Here is the key: sk-abcdef1234567890ABCDEFGHIJ"}
-    result = plugin.post_llm_call(response, tokens=12, session_key="enforce-001")
+    # v0.8.0: suppression lives in transform_llm_output (fires BEFORE
+    # delivery); post_llm_call is the post-delivery audit/alert observer.
+    # Payload: a token the current CredentialLeakDetector actually matches
+    # (the old "sk-abc...GHIJ" probe stopped firing after the 2026-10
+    # detector hardening — see detectors/credential_leak.py key format).
+    response_text = "Here is the key: sk-abcdef1234567890ABCDEFGHIJ"
+    result = plugin.transform_llm_output(response_text, session_key="enforce-001")
 
     assert result is not None
-    assert "BLOCKED" in result["text"]
+    assert "BLOCKED" in result
     entries = _read_audit_entries(plugin.audit_log)
     assert len(entries) == 1
-    assert entries[0]["layer"] == "post_llm_call"
+    assert entries[0]["layer"] == "transform_llm_output"
 
 
 def test_post_llm_call_async_clean_response_emits_no_audit(plugin: InjectionShieldPlugin) -> None:

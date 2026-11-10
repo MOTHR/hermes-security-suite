@@ -11,23 +11,23 @@ requires-python = ">=3.10"
 license = {text = "MIT"}
 authors = [{name = "Injection-Shield Maintainers"}]
 dependencies = [
-    "pyyaml>=6.0",
-    "requests>=2.28",
+    "pyyaml>=6.0,<7.0",
+    "requests>=2.28,<3.0",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",
+    "pytest>=7.0,<10.0",
+    "pytest-asyncio>=0.21,<2.0",
 ]
 # explicit `test` group — mirrors the canonical ``pip install -e .[test]``
 # workflow. ``dev`` is kept for backward compatibility with older callers.
 test = [
-    "pytest>=7.0",
-    "pytest-asyncio>=0.21",  # async hook tests (pre/post_llm_call)
-    "pytest-cov>=4.0",       # coverage reporting
-    "tomli>=1.2.0",          # Python <3.11 pyproject.toml parsing in tests
-    "fastapi>=0.100",        # dashboard API tests use FastAPI TestClient
+    "pytest>=7.0,<10.0",
+    "pytest-asyncio>=0.21,<2.0",  # async hook tests (pre/post_llm_call)
+    "pytest-cov>=4.0,<8.0",       # coverage reporting
+    "tomli>=1.2.0,<3.0",          # Python <3.11 pyproject.toml parsing in tests
+    "fastapi>=0.100,<1.0",        # dashboard API tests use FastAPI TestClient
     "httpx>=0.24",           # TestClient peer dependency
 ]
 
