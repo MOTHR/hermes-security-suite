@@ -7,6 +7,20 @@ The format is inspired by [Keep a Changelog](https://keepachangelog.com/),
 adapted for an in-tree Hermes plugin (not a PyPI release). Each entry
 cross-references the review-ID it closes.
 
+## [Unreleased]
+
+### Generator-basierte Homoglyph-Map (Orakel W2-1-Follow-up, t_cb41d625)
+
+- `detectors/content_tagger.py`: die handgepickte `_HOMOGLYPHS`-Map ist
+  entfernt; sie kommt jetzt aus dem generierten
+  `detectors/homoglyph_map.py` (TR39 `data/confusables.txt`, Unicode
+  18.0.0, 1582 Einträge + 17 geprüfte Gap-Fill-Extensions für
+  visuell-identische Cyrillic/Greek-Glyphen ohne TR39-Latin-Target).
+- Neu: `scripts/generate_homoglyph_map.py` (deterministisch, TR39 gewinnt
+  Konflikte: б→6, σ→o) und `tests/test_homoglyph_map.py` (Abgleich des
+  ausgelieferten Moduls gegen die vendored Confusables- Quelle).
+  Kein Verhalten-Change der `test_is_untrusted_source_*`-Regressionen.
+
 ## [0.8.1] - 2026-11-10
 
 ### Review-Welle 1+2 (Orakel/Smith/Seraph, PR #150309): Detection- und Alert-Härtung

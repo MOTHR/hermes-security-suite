@@ -1,0 +1,4 @@
+
+# Local test symlinks (underscore package-name alias for pytest imports)
+privacy_shield
+injection_shield

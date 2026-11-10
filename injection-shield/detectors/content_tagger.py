@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Any
 
 from .base import BaseDetector
+from .homoglyph_map import HOMOGLYPHS as _HOMOGLYPHS  # GENERATED — do not hand-edit
 
 # v0.6.0 (G-001, Agent-Smith review): tools that fetch external content or
 # execute arbitrary code produce attacker-influencable output — treat as
@@ -29,6 +30,15 @@ UNTRUSTED_SOURCES = {
 }
 MCP_PREFIX = "mcp__"
 
+# DG-001 (Smith wave-2): homoglyph/zero-width/whitespace bypasses.
+# Cyrillic/Greek lookalikes NFKD does NOT fold are covered by the generated
+# ``_HOMOGLYPHS`` map (TR39 confusables + reviewed gap-fill extensions, see
+# ``scripts/generate_homoglyph_map.py`` and ``data/confusables.txt``; Orakel
+# W2-1 follow-up t_cb41d625). Mixed-script names like
+# 'w\u0435b_\u0435xtr\u0430ct'/'w\u0435b\u0432_extract' still hit the untrusted set.
+_STRIP_CHARS = {0x200B, 0x200C, 0x200D, 0xFEFF, 0x00}
+_TO_UNDERSCORE = {0x20, 0x09}  # space/tab inside tool names
+
 
 def is_untrusted_source(source: str) -> bool:
     """Return True if ``source`` is an untrusted tool/MCP name.
@@ -40,28 +50,6 @@ def is_untrusted_source(source: str) -> bool:
     """
     if not source:
         return False
-    # DG-001 (Smith wave-2): homoglyph/zero-width/whitespace bypasses.
-    # Explicit map covers cyrillic/greek lookalikes NFKD does NOT fold.
-    # Wave-2 expansion (Smith review t_5d7e23ce/002, TR39 confusables):
-    # latin-shaped Cyrillic/Greek letters must fold so mixed-script names
-    # like 'w\u0435b_\u0435xtr\u0430ct'/'w\u0435b\u0432_extract' still hit
-    # the untrusted set. Orakel W2-1: g\u0433\u2192r included; long-term the
-    # map should be generated from Unicode confusables.txt instead of hand-
-    # picked here.
-    _HOMOGLYPHS = {
-        # Cyrillic
-        0x0430: "a", 0x0431: "b", 0x0432: "b", 0x0433: "r", 0x0435: "e",
-        0x043A: "k", 0x043C: "m", 0x043D: "h", 0x043E: "o", 0x0440: "p",
-        0x0441: "c", 0x0442: "t", 0x0443: "y", 0x0445: "x", 0x0456: "i",
-        0x0455: "s", 0x0451: "e", 0x0458: "j", 0x043F: "p", 0x044E: "y",
-        0x04BB: "h", 0x03C1: "p",  # greek rho
-        # Greek
-        0x03B1: "a", 0x03B5: "e", 0x03B9: "i", 0x03BA: "k", 0x03BC: "m",
-        0x03BF: "o", 0x03C5: "u", 0x03C4: "t", 0x03BD: "v", 0x03C0: "p",
-        0x03C7: "x", 0x03B8: "e", 0x03C3: "s", 0x03C9: "w",
-    }
-    _STRIP_CHARS = {0x200B, 0x200C, 0x200D, 0xFEFF, 0x00}
-    _TO_UNDERSCORE = {0x20, 0x09}  # space/tab inside tool names
     source = str(source)
     for glyph, ascii_eq in _HOMOGLYPHS.items():
         source = source.replace(chr(glyph), ascii_eq)
