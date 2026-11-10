@@ -37,6 +37,7 @@ from privacy_shield.detectors.regex_detector import (
     normalize_text,
 )
 from privacy_shield.plugin import PrivacyShieldPlugin
+from _shield_contract_seam import staged_result as _staged_result
 
 
 # ── 1. Risky-Tool-Defaults ───────────────────────────────────────────────
@@ -106,14 +107,16 @@ class TestRiskyToolRouting:
 
     def test_mode_off_force_shield_for_risky_tool(self):
         plugin = self._make_plugin(mode="off", force_shield=True)
-        result = plugin.pre_llm_call(
-            "Send this to max.mustermann@example.com",
-            {"tool_name": "web_extract", "provider": "openai",
-             "session_id": "test-session-001"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "Send this to max.mustermann@example.com",
+                {"tool_name": "web_extract", "provider": "openai",
+                 "session_id": "test-session-001"},
+            ),
         )
         # Even with mode=off, the risky tool forces shielding.
         assert result is not None
-        assert "user_message" in result
         assert "max.mustermann@example.com" not in result["user_message"]
 
     def test_mode_off_force_shield_disabled_for_risky_tool(self):
@@ -608,10 +611,13 @@ class TestIntegration:
         plugin = PrivacyShieldPlugin(config=cfg)
         # Plain prose coming through web_extract: not in a code fence, so
         # full confidence and the email IS replaced.
-        result = plugin.pre_llm_call(
-            "Please contact max.mustermann@example.com for verification.",
-            {"tool_name": "web_extract", "provider": "openai",
-             "session_id": "int-001"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "Please contact max.mustermann@example.com for verification.",
+                {"tool_name": "web_extract", "provider": "openai",
+                 "session_id": "int-001"},
+            ),
         )
         assert result is not None
         assert "max.mustermann@example.com" not in result["user_message"]

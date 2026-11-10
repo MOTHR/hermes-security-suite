@@ -86,6 +86,9 @@ class PrivacyShieldPlugin:
         )
         self.mapper: MappingTable | InMemoryMappingTable = self._build_mapper()
         self._provider_warned: set[str] = set()
+        # llm_request middleware staging slot: sanitized prompt produced by the
+        # last pre_llm_call, consumed by the next outgoing request (one slot).
+        self._staged_shield: dict[str, Any] | None = None
         self._pdf_preprocessor = self._init_attachment_preprocessor("pdf")
         self._image_preprocessor = self._init_attachment_preprocessor("image")
         self._email_preprocessor = self._init_attachment_preprocessor("email")
@@ -347,10 +350,14 @@ class PrivacyShieldPlugin:
     ) -> dict[str, Any] | None:
         """Called by Core-Hook before every LLM API call.
 
-        Returns: dict with 'user_message' key whose value REPLACES the
-        user message sent to the provider.  Returns None if bypassed.
-        A dict with ``blocked: True`` + ``block_reason`` hard-blocks the
-        turn (Core override-capture fails the turn before the API call).
+        Upstream contract (``agent/turn_context.py``): the only consumed
+        returns are ``{"action": "block", "message": ...}`` — which vetoes
+        the turn — and ``{"context": ...}`` / plain strings, which are
+        injected into the user message. This hook therefore only VETOES
+        (strict mode with a known cloud provider, or paranoid mode) and
+        otherwise stages its sanitized prompt for the ``llm_request``
+        middleware (:meth:`apply_shield_to_request`), which rewrites the
+        user message inside the outgoing request payload.
         """
         ctx = context or {}
         config = self.config
@@ -456,10 +463,12 @@ class PrivacyShieldPlugin:
 
         Sub-routine of :meth:`pre_llm_call` that owns the
         detection / confidence / mode / audit / cache-bypass sequence.
-        Returning ``None`` means "no replacement, leave prompt alone";
-        a dict means "replace the user message with this sanitized
-        text" or — with ``blocked: True`` — "hard-block the turn"
-        (Spec v1.1 Section 4c).
+        A returned veto dict means "hard-block the turn" (upstream
+        ``pre_llm_call`` contract). Otherwise the sanitized prompt is
+        STAGED (single slot keyed by turn) for the ``llm_request``
+        middleware — :meth:`apply_shield_to_request` consumes it and
+        rewrites the outgoing user message. Returning ``None`` is the
+        normal outcome; only blocks are signalled via the return value.
         """
         pii_hits = self.detector.scan(prompt)
         masked_hits, dropped_hits = self._partition_by_confidence(pii_hits)
@@ -478,20 +487,37 @@ class PrivacyShieldPlugin:
             return None
 
         provider = ctx.get("provider", "")
-        is_cloud_provider = provider and provider not in ("ollama_local", "ollama")
-        # BLOCK-SIGNAL (Spec v1.1 Section 4c): strict/paranoid blocks are
-        # transported via the return contract instead of exceptions —
+        # STRICT block requires a known cloud provider. Upstream pre_llm_call
+        # provides no ``provider`` kwarg; when it is absent the veto cannot be
+        # provider-scoped, so strict mode defers to the mask path (PII never
+        # leaves the machine — the block only guards against the turn
+        # continuing at all). Paranoid vetoes regardless of provider.
+        is_cloud_provider = bool(provider) and provider not in ("ollama_local", "ollama")
+        # BLOCK-SIGNAL: strict/paranoid blocks are transported via the return
+        # contract ({\"action\": \"block\", \"message\": ...}) instead of exceptions —
         # the Core hook dispatcher swallows every exception thrown
-        # inside a pre_llm_call hook (plugins_dispatch catch-all), so a
-        # raised StrictModeBlock never reaches the turn loop and the
-        # LLM call runs with unredacted PII. The Core override-capture
-        # reads ``blocked``/``block_reason`` and hard-fails the turn
-        # BEFORE the API call.
+        # inside a pre_llm_call hook (plugins_dispatch catch-all).
         if config.mode == "strict" and masked_hits and is_cloud_provider:
             reason = (
                 f"Privacy-Shield: {len(masked_hits)} PII match(es) detected in strict mode "
                 f"for provider '{provider}'; blocking LLM call."
             )
+        elif config.mode == "strict" and masked_hits and not is_cloud_provider:
+            reason = None
+            if self.audit is not None:
+                self.audit.log(
+                    event="strict_block_deferred",
+                    session_id=ctx.get("session_id", ""),
+                    masked_count=len(masked_hits),
+                    pii_types=[m.type for m in masked_hits],
+                    mode=config.mode,
+                    model=ctx.get("model", ""),
+                    platform=ctx.get("platform", ""),
+                    note=(
+                        "Upstream pre_llm_call provides no provider; strict veto "
+                        "deferred, PII is masked via llm_request middleware instead."
+                    ),
+                )
         elif config.mode == "paranoid" and masked_hits:
             reason = (
                 f"Privacy-Shield: {len(masked_hits)} PII match(es) detected in paranoid mode; "
@@ -511,8 +537,8 @@ class PrivacyShieldPlugin:
                     platform=ctx.get("platform", ""),
                 )
             return {
-                "blocked": True,
-                "block_reason": reason,
+                "action": "block",
+                "message": reason,
             }
 
         if not masked_hits:
@@ -528,27 +554,119 @@ class PrivacyShieldPlugin:
         )
         self._log_detections(mapping, ctx.get("session_id", ""))
 
-        if self.audit is not None and mapping:
-            self.audit.log(
-                event="pseudonymization_applied",
-                session_id=ctx.get("session_id", ""),
-                masked_count=len(mapping),
-                pii_types=[m.get("type", "unknown") for m in mapping],
-                mode=self.config.mode,
-                model=ctx.get("model", ""),
-                platform=ctx.get("platform", ""),
-            )
-
         if self.config.cache_bypass:
             sanitized = self.cache_bypass.inject(sanitized, ctx)
 
+        # Stage for the llm_request middleware. The audit "applied" event is
+        # only emitted by :meth:`apply_shield_to_request` when the sanitized
+        # prompt actually replaces the outgoing user message — bypassed
+        # (local) traffic must not be counted as pseudonymized.
+        self._stage_shield(
+            turn_id=ctx.get("turn_id", ""),
+            payload={
+                "sanitized": sanitized,
+                "orig_len": len(prompt),
+                "masked_count": len(mapping),
+                "pii_types": [m.get("type", "unknown") for m in mapping],
+                "session_id": ctx.get("session_id", ""),
+                "model": ctx.get("model", ""),
+                "platform": ctx.get("platform", ""),
+            },
+        )
+        return None
+
+    # ── llm_request middleware application ────────────────────────────────
+
+    def _stage_shield(self, *, turn_id: str, payload: dict[str, Any]) -> None:
+        """Store the sanitized prompt for :meth:`apply_shield_to_request`.
+
+        Single slot per turn: the newest pre_llm_call result wins. A slot
+        keyed by an empty turn_id (provider did not pass one) still matches
+        the middleware's turn_id via :meth:`_pop_staged_shield`.
+        """
+        entry = dict(payload)
+        entry["turn_id"] = turn_id or ""
+        self._staged_shield = entry
+
+    def _pop_staged_shield(self, turn_id: str) -> dict[str, Any] | None:
+        """Consume the staged shield when the turn matches (or either id unset)."""
+        staged = getattr(self, "_staged_shield", None)
+        if not staged:
+            return None
+        if turn_id and staged.get("turn_id") and turn_id != staged.get("turn_id"):
+            return None
+        self._staged_shield = None
+        return staged
+
+    def apply_shield_to_request(
+        self,
+        request: dict[str, Any] | None,
+        *,
+        provider: str = "",
+        session_id: str = "",
+        model: str = "",
+        platform: str = "",
+        turn_id: str = "",
+    ) -> dict[str, Any] | None:
+        """Rewrite the last user message of an outgoing LLM request with the
+        staged sanitized prompt (``llm_request`` middleware callback).
+
+        Returns ``{"request": request}`` when the rewrite was applied,
+        ``None`` when nothing should change (no staged shield, local
+        provider, or no user message found). The middleware contract only
+        propagates a payload under the ``request`` key.
+        """
+        staged = self._pop_staged_shield(turn_id)
+        if not staged:
+            return None
+        sanitized = staged.get("sanitized", "")
+        if not sanitized:
+            return None
+        if provider in ("ollama_local", "ollama"):
+            # Local model traffic is exempt from pseudonymization.
+            return None
+
+        messages = request.get("messages") if isinstance(request, dict) else None
+        if not isinstance(messages, list):
+            return None
+        for msg in reversed(messages):
+            if not (isinstance(msg, dict) and msg.get("role") == "user"):
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                msg["content"] = sanitized
+            elif isinstance(content, list):
+                replaced = False
+                for part in content:
+                    if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
+                        msg["content"][content.index(part)] = {**part, "text": sanitized}
+                        replaced = True
+                        break
+                if not replaced:
+                    return None
+            else:
+                return None
+            break
+        else:
+            return None
+
+        if self.audit is not None:
+            self.audit.log(
+                event="pseudonymization_applied",
+                session_id=session_id or staged.get("session_id", ""),
+                masked_count=staged.get("masked_count", 0),
+                pii_types=staged.get("pii_types", []),
+                mode=self.config.mode,
+                model=model or staged.get("model", ""),
+                platform=platform or staged.get("platform", ""),
+            )
         logger.info(
             "Privacy-Shield: %d PII replacements in prompt (%d chars -> %d chars)",
-            len(mapping),
-            len(prompt),
+            staged.get("masked_count", 0),
+            staged.get("orig_len", 0),
             len(sanitized),
         )
-        return {"user_message": sanitized}
+        return {"request": request}
 
     def _log_detections(self, mapping: list[dict[str, Any]], session_id: str) -> None:
         """Shim around :func:`log_utils.log_detections` (MORPH-PS-3)."""

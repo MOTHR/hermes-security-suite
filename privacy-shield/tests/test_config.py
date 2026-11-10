@@ -2,13 +2,13 @@
 
 import os
 import pytest
+import privacy_shield.config as ps_config
 from privacy_shield.config import (
     PrivacyShieldConfig,
     load_config,
     validate_config,
     effective_threshold,
-    _load_key_from_pass,
-    _load_key_from_env,
+    _load_key_via_hermes,
 )
 
 
@@ -133,21 +133,31 @@ class TestConfidenceThreshold:
 
 
 class TestKeyLoading:
-    """Encryption key loading."""
+    """Encryption key loading through the Hermes secret scope."""
 
-    def test_env_key_loading(self, monkeypatch):
-        monkeypatch.setenv("PRIVACY_SHIELD_KEY", "env-test-key")
-        key = _load_key_from_env()
-        assert key == "env-test-key"
+    def _patch_secret_scope(self, monkeypatch, value):
+        import agent.secret_scope as ss
 
-    def test_env_key_missing(self, monkeypatch):
-        monkeypatch.delenv("PRIVACY_SHIELD_KEY", raising=False)
-        key = _load_key_from_env()
-        assert key is None
+        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: value)
 
-    def test_pass_not_available(self):
-        """pass command not installed → returns None."""
-        # _load_key_from_pass handles FileNotFoundError gracefully
-        key = _load_key_from_pass()
-        # Should return None if pass is not installed
-        assert key is None or isinstance(key, str)
+    def test_secret_scope_key_loading(self, monkeypatch):
+        self._patch_secret_scope(monkeypatch, "scoped-test-key")
+        assert _load_key_via_hermes() == "scoped-test-key"
+
+    def test_secret_scope_key_missing(self, monkeypatch):
+        self._patch_secret_scope(monkeypatch, None)
+        assert _load_key_via_hermes() is None
+
+    def test_secret_scope_unavailable_returns_none(self, monkeypatch):
+        """Outside Hermes, the import must fail cleanly (None, no crash)."""
+        import sys
+
+        monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
+        assert _load_key_via_hermes() is None
+
+    def test_load_config_uses_secret_scope_key(self, monkeypatch):
+        monkeypatch.setattr(ps_config, "_load_key_via_hermes", lambda: "cfg-key")
+        monkeypatch.delenv("PRIVACY_SHIELD_KEY_FILE", raising=False)
+        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
+        cfg = load_config()
+        assert cfg.encryption_key == "cfg-key"

@@ -186,6 +186,9 @@ def test_hook_registration_via_register(plugin) -> None:
         def register_hook(self, name, fn):
             registered[name] = fn
 
+        def register_middleware(self, kind, fn):
+            registered["middleware:" + kind] = fn
+
     import privacy_shield as ps
 
     ps.register(FakeCtx())

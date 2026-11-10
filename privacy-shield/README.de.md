@@ -4,7 +4,7 @@
 
 DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (PII) in sichtbarem LLM-Output und Reasoning-Inhalten.
 
-**Version:** 1.8.0 (2026-11-06) — 58 Erkennungsmuster · 1066 Tests · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
+**Version:** 1.9.0 (2026-11-10) — 58 Erkennungsmuster · reiner Upstream-Plugin-Contract (llm_request-Middleware + pre_llm_call-Veto) · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
 
 ## Features
 
@@ -24,18 +24,18 @@ DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (P
 ## Quickstart (5 Minuten)
 
 ```bash
-# 1. Installieren (via Git — GitHub-Zugang erforderlich)
-pip install git+ssh://git@github.com:MOTHR/hermes-privacy-shield.git@v1.7.6
-# oder für Entwicklung mit editierbarem Source
-pip install -e .
+# 1. Installation über das Hermes-Plugin-System (installiert die dashboard+/
+#    desktop-Hälften selbst; kein pip in Hermes' venv, kein Core-Patching)
+hermes plugins install <quelle>/privacy-shield
+hermes plugins enable privacy-shield   # pro Profil
 
-# 2. Encryption-Key generieren (einmalig)
-python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
+# 2. Encryption-Key bereitstellen
+privacy-shield setup                    # generiert einen Key und legt ihn in pass ab
+# Oder PRIVACY_SHIELD_KEY über eine beliebige Hermes-Secret-Source deklarieren
+# (Keychain / pass-store Secret-Source-Plugin, Command-Source, .env).
+# Das Plugin löst ihn über agent.secret_scope auf (requires_env).
 
-# 3. Plugin aktivieren (Hermes-Loader)
-# In config.yaml: plugins.enabled: [privacy-shield]
-
-# 4. Testen
+# 3. Testen
 privacy-shield --help
 privacy-shield scan "Kontakt: alice@example.com"
 privacy-shield test --text "Hilf mir mit alice@example.com und IBAN DE89370400440532013000"
@@ -52,7 +52,7 @@ Privacy-Shield wird mit einem offiziellen Desktop-Plugin ausgeliefert, über das
 - PDF / Bild-OCR / Cache-Bypass toggeln
 - Synthetischen Restore-Smoke-Test ausführen
 
-Das Desktop-Plugin liegt unter `desktop/` und wird bei `pip install` automatisch nach `~/.hermes/desktop-plugins/privacy-shield-controls/` kopiert. **Kein manuelles Kopieren nötig.**
+Das Desktop-Plugin liegt unter `desktop/` und wird vom Hermes-Plugin-System selbst installiert (`hermes plugins install` / `hermes plugins enable`). **Kein manuelles Kopieren nach `~/.hermes/desktop-plugins/` nötig oder vorgesehen.**
 
 Das Backend ist in `dashboard/plugin_api.py` und wird vom Hermes Dashboard-Plugin-System unter `/api/plugins/privacy-shield/` gemountet.
 
@@ -85,6 +85,14 @@ plugins:
 ```
 
 **Limitationen:** Siehe [`docs/reasoning-protection.md`](docs/reasoning-protection.md) für die vollständige Liste der Design-Limitationen und Mitigationsschritte.
+
+> **Hinweis zum Datenhandling — bitte lesen (Standardverhalten):** der
+> Restore-Pass schreibt standardmäßig **echte personenbezogene Daten in die
+> Replies zurück** auf den nutzerseitigen Channels `telegram`, `desktop`,
+> `cli` und `kanban`. Nach der Wiederherstellung verlässt die Antwort die
+> Maschine unredigiert. Wer keinen Klartext-PII in zugestellten Antworten
+> will, muss diese Channels aus `restore_allowed_channels` entfernen oder
+> Restore abschalten.
 
 ### Restore-Miss-Behandlung, Splice-Repair, Kanban-Channel (v1.7.6)
 
@@ -154,7 +162,9 @@ RegexPIIDetector.scan() — 58 Muster
     ↓
 Pseudonymizer.replace() — Token statt Original
     ↓
-MappingTable.store() — in-memory + AES-256-GCM
+MappingTable.store() — in-memory + AES-256-GCM, sanitized Prompt wird STAGED
+    ↓
+llm_request-Middleware schreibt die User-Message im api_kwargs um
     ↓
 Provider bekommt nur Tokens
     ↓

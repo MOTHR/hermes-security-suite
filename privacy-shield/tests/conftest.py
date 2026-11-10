@@ -34,6 +34,10 @@ def pytest_configure(config):
     repo_root = str(PLUGIN_DIR)
     if repo_root not in sys.path:
         sys.path.insert(0, repo_root)
+    # tests/ itself is importable (shared seam helpers for v1.9.0 contract tests).
+    tests_dir = str(Path(__file__).resolve().parent)
+    if tests_dir not in sys.path:
+        sys.path.insert(0, tests_dir)
     for candidate in _PLUGIN_PARENT_CANDIDATES:
         if (
             not candidate

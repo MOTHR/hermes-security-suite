@@ -4,9 +4,9 @@ from privacy_shield.config import ReasoningBlockConfig, load_config
 
 
 def _patch_no_pass_key(monkeypatch):
-    """Disable pass-store key lookup so the workshop env block is reachable."""
+    """Disable Hermes-scope key lookup so the workshop env block is reachable."""
     monkeypatch.setattr(
-        "privacy_shield.config._load_key_from_pass",
+        "privacy_shield.config._load_key_via_hermes",
         lambda: None,
     )
 

@@ -17,6 +17,7 @@ from pathlib import Path
 
 from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.plugin import PrivacyShieldPlugin
+from _shield_contract_seam import staged_result as _staged_result
 
 
 def _read_audit_lines(path: Path) -> list[dict]:
@@ -50,10 +51,10 @@ class TestBlockSignal:
             context={"session_id": "sess-bs", "provider": "openai"},
         )
         assert isinstance(result, dict)
-        assert result["blocked"] is True
-        assert "strict mode" in result["block_reason"]
+        assert result["action"] == "block"
+        assert "strict mode" in result["message"]
         # No sanitized replacement rides along with a block.
-        assert "user_message" not in result
+        assert result.get("blocked") is None and "user_message" not in result
 
     def test_paranoid_cloud_returns_block_signal(self, tmp_path: Path):
         plugin = _plugin(tmp_path, "paranoid")
@@ -61,8 +62,8 @@ class TestBlockSignal:
             "email: alice@example.com",
             context={"session_id": "sess-bs", "provider": "openai"},
         )
-        assert isinstance(result, dict) and result["blocked"] is True
-        assert "paranoid mode" in result["block_reason"]
+        assert isinstance(result, dict) and result["action"] == "block"
+        assert "paranoid mode" in result["message"]
 
     def test_local_provider_bypass_stays_untouched(self, tmp_path: Path):
         """Pre-existing bypass contract: ollama calls skip the shield."""
@@ -75,12 +76,15 @@ class TestBlockSignal:
 
     def test_pseudonymize_mode_not_blocked(self, tmp_path: Path):
         plugin = _plugin(tmp_path, "limited")
-        result = plugin.pre_llm_call(
-            "email: alice@example.com",
-            context={"session_id": "sess-bs", "provider": "openai"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: alice@example.com",
+                context={"session_id": "sess-bs", "provider": "openai"},
+            ),
         )
         assert result is not None
-        assert result.get("blocked") is not True
+        assert result.get("action") is None
         assert "TOKEN_EMAIL_" in result["user_message"]
 
     def test_block_writes_audit_event(self, tmp_path: Path):

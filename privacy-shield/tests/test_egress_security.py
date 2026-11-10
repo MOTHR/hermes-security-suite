@@ -6,6 +6,7 @@ import pytest
 
 from privacy_shield.plugin import PrivacyShieldPlugin
 from privacy_shield.config import PrivacyShieldConfig
+from _shield_contract_seam import staged_result as _staged_result
 
 
 @pytest.fixture
@@ -21,9 +22,12 @@ def plugin():
 
 class TestCacheBypass:
     def test_cache_bypass_includes_multiple_markers(self, plugin):
-        result = plugin.pre_llm_call(
-            "email: test@example.com",
-            context={"session_id": "sess-123", "provider": "openai"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: test@example.com",
+                context={"session_id": "sess-123", "provider": "openai"},
+            ),
         )
         assert result is not None
         sanitized = result["user_message"]
@@ -32,13 +36,19 @@ class TestCacheBypass:
         assert "privacy-shield session=sess-123" in sanitized
 
     def test_cache_bypass_changes_between_calls(self, plugin):
-        r1 = plugin.pre_llm_call(
-            "email: test@example.com",
-            context={"session_id": "sess-123", "provider": "openai"},
+        r1 = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: test@example.com",
+                context={"session_id": "sess-123", "provider": "openai"},
+            ),
         )
-        r2 = plugin.pre_llm_call(
-            "email: test@example.com",
-            context={"session_id": "sess-123", "provider": "openai"},
+        r2 = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: test@example.com",
+                context={"session_id": "sess-123", "provider": "openai"},
+            ),
         )
         assert r1["user_message"] != r2["user_message"]
 
@@ -70,10 +80,9 @@ class TestSideChannelBuckets:
             "email: test@example.com",
             context={"session_id": "sess-123", "provider": "openai"},
         )
-        # Spec v1.1 4c: block as return-contract signal (exceptions are
-        # swallowed by the Core hook dispatcher).
-        assert isinstance(result, dict) and result.get("blocked") is True
-        assert "paranoid mode" in result.get("block_reason", "")
+        # v1.9.0: block as upstream return-contract ({'action': 'block'}).
+        assert isinstance(result, dict) and result.get("action") == "block"
+        assert "paranoid mode" in result.get("message", "")
 
     def test_off_mode_returns_none(self, plugin):
         plugin.config.mode = "off"
@@ -88,9 +97,12 @@ class TestRestoreChannelControl:
     def test_restore_only_allowed_channels(self, plugin):
         plugin.config.restore_allowed_channels = ("telegram:12345",)
         # Store a mapping first so the token can be restored
-        redacted = plugin.pre_llm_call(
-            "email: alice@example.com",
-            context={"session_id": "sess-123", "provider": "openai"},
+        redacted = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: alice@example.com",
+                context={"session_id": "sess-123", "provider": "openai"},
+            ),
         )["user_message"]
         token_match = re.search(r"TOKEN_EMAIL_[0-9a-f]{10}_\d{3}", redacted)
         assert token_match, "no token generated"
@@ -116,9 +128,12 @@ class TestRestoreChannelControl:
 
 class TestModeBehaviour:
     def test_limited_mode_redacts_and_stores(self, plugin):
-        redacted = plugin.pre_llm_call(
-            "email: alice@example.com",
-            context={"session_id": "sess-123", "provider": "openai"},
+        redacted = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "email: alice@example.com",
+                context={"session_id": "sess-123", "provider": "openai"},
+            ),
         )
         assert "TOKEN_EMAIL_" in redacted["user_message"]
         assert plugin.mapper.count() == 1
@@ -130,9 +145,9 @@ class TestModeBehaviour:
             "email: alice@example.com",
             context={"session_id": "sess-123", "provider": "openai"},
         )
-        # Spec v1.1 4c: block as return-contract signal.
-        assert isinstance(result, dict) and result.get("blocked") is True
-        assert "strict mode" in result.get("block_reason", "")
+        # v1.9.0: block as upstream return-contract ({'action': 'block'}).
+        assert isinstance(result, dict) and result.get("action") == "block"
+        assert "strict mode" in result.get("message", "")
 
 
 # ── FIX-4B / Architect NEU-002: Confidence-Threshold für Low-Patterns ───────
@@ -151,9 +166,12 @@ class TestConfidenceThreshold:
 
     def test_high_confidence_email_is_masked(self, plugin):
         """email is high-confidence → must always be masked in limited mode."""
-        result = plugin.pre_llm_call(
-            "Contact: max.mustermann@example.com",
-            context={"session_id": "sess-ct-1", "provider": "openai"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                "Contact: max.mustermann@example.com",
+                context={"session_id": "sess-ct-1", "provider": "openai"},
+            ),
         )
         assert result is not None
         assert "TOKEN_EMAIL_" in result["user_message"]
@@ -188,9 +206,12 @@ class TestConfidenceThreshold:
     def test_mixed_email_and_cookie_only_email_masked(self, plugin):
         """When high- and low-confidence patterns coexist, only high is masked."""
         text = f"Mail max.mustermann@example.com sid={self._COOKIE_TOKEN}"
-        result = plugin.pre_llm_call(
-            text,
-            context={"session_id": "sess-ct-5", "provider": "openai"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                text,
+                context={"session_id": "sess-ct-5", "provider": "openai"},
+            ),
         )
         assert result is not None
         assert "TOKEN_EMAIL_" in result["user_message"]
@@ -238,9 +259,12 @@ class TestConfidenceThreshold:
             confidence_overrides={},  # no per-type overrides
         )
         plugin = PrivacyShieldPlugin(config=cfg)
-        result = plugin.pre_llm_call(
-            f"session_id={self._COOKIE_TOKEN}",
-            context={"session_id": "sess-ct-8", "provider": "openai"},
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(
+                f"session_id={self._COOKIE_TOKEN}",
+                context={"session_id": "sess-ct-8", "provider": "openai"},
+            ),
         )
         assert result is not None
         assert "TOKEN_COOKIE_" in result["user_message"]

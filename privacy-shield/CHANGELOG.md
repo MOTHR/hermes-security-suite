@@ -1,5 +1,32 @@
 ## [Unreleased]
 
+## [1.9.0] - 2026-11-10
+
+### Hackathon-Review (NousResearch, PR #150309): reine Upstream-Plugin-Route
+
+- **Kein Core-Patching mehr**: `scripts/auto_apply_hook.py` (turn_context
+  -Patcher + 6h-Crontab) komplett entfernt; `install.sh` ohne
+  Cron-/Config-Steps. Privacy-Shield nutzt nur die Upstream-Contracts.
+- **Masking via llm_request-Middleware**: der pseudonymisierte Prompt wird
+  von `pre_llm_call` gestaged und von der neuen `llm_request`-Middleware in
+  die User-Message des api_kwargs geschrieben (Plugin-Contract statt
+  Core-Patch). Lokale Provider (ollama) bleiben ausgespart; das Audit-Event
+  `pseudonymization_applied` wird erst beim tatsächlichen Rewrite geloggt.
+- **Block-Contract**: Strict-/Paranoid-Vetos nutzen jetzt
+  `{"action": "block", "message": ...}` (upstream pre_llm_call-Contract,
+  #57364) statt `{"blocked": True}`-Core-Patch-Override. Strict ohne
+  Provider-Kontext (upstream übergibt keinen) verzichtet auf das Veto,
+  maskiert stattdessen und loggt `strict_block_deferred`.
+- **Secrets via secret_scope**: der Encryption-Key wird über
+  `agent.secret_scope.get_secret("PRIVACY_SHIELD_KEY")` aufgelöst
+  (`requires_env` im Manifest); `pass show`-Subprocess und bare
+  `os.environ`-Reads entfernt. `privacy-shield setup` ist key-only — keine
+  .env-/config.yaml-/Symlink-/pip-Schritte mehr.
+- **Dependency-Bounds**: `<next major>` Upper Bounds in `pyproject.toml`
+  und `plugin.yaml`.
+
+<!-- previous entries below -->
+
 ### Performance — Regex-Detector Fast-Path für Identity-Normalisierung (PR #21)
 
 - `detectors/regex_detector.py`: Identity-Mapping-Schnellpfad — Text ohne

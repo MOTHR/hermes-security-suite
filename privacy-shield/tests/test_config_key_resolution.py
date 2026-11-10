@@ -1,14 +1,11 @@
-"""Regression tests for launchd PATH robustness of pass-store key loading.
+"""Key resolution + pass-binary hardening regression tests.
 
-Reproduces the gateway bug: under launchd, ~/.local/bin is often missing
-from PATH, so a bare ``pass`` invocation raised FileNotFoundError and the
-plugin fell back to workshop mode. The binary must now be resolved via
-``shutil.which("pass")`` with a filesystem fallback to ``~/.local/bin/pass``.
-
-C-001/H-002 hardening (Agent-Smith review): the fallback must NOT trust the
-``HOME`` environment variable, must reject binaries outside the whitelist
-directories, binaries owned by another user, group/other-writable binaries,
-and symlinked binaries pointing outside the whitelist.
+Key loading moved to the Hermes secret scope (v1.9.0, plugin.yaml
+``requires_env: [PRIVACY_SHIELD_KEY]``): the plugin resolves the value via
+``agent.secret_scope.get_secret`` and must not read ``os.environ`` or invoke
+the ``pass`` binary itself. The ``pass`` binary resolution hardening
+(C-001/H-002) stays covered — it is still used for the restore chat-id lookup
+(``hermes/telegram/chat_id``).
 """
 
 from __future__ import annotations
@@ -16,92 +13,66 @@ from __future__ import annotations
 import os
 import pwd
 import stat
+import sys
 
 import pytest
 
+import privacy_shield.config as ps_config
 from privacy_shield import config
-from privacy_shield.config import _load_key_from_pass, _resolve_pass_binary
+from privacy_shield.config import _load_key_via_hermes, _resolve_pass_binary
 
 
-@pytest.fixture
-def fake_pass(tmp_path, monkeypatch):
-    """Create a stub pass binary and a PATH that excludes ~/.local/bin."""
-    bin_dir = tmp_path / "bin"
-    bin_dir.mkdir()
-    script = (
-        "#!/bin/sh\n"
-        'if [ "$1" = "show" ] && [ "$2" = "hermes/privacy-shield-key" ]; then\n'
-        '    echo "stub-key-from-pass"\n'
-        "    exit 0\n"
-        "fi\n"
-        "exit 1\n"
-    )
-    pass_bin = bin_dir / "pass"
-    pass_bin.write_text(script)
-    pass_bin.chmod(pass_bin.stat().st_mode | stat.S_IXUSR)
+class TestHermesSecretScopeKey:
+    """Key comes from agent.secret_scope.get_secret('PRIVACY_SHIELD_KEY')."""
 
-    # PATH without ~/.local/bin — simulates the launchd gateway environment.
-    monkeypatch.setenv("PATH", str(bin_dir))
-    return pass_bin
+    def test_secret_scope_key_loading(self, monkeypatch):
+        import agent.secret_scope as ss
+
+        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: "scoped-key")
+        assert _load_key_via_hermes() == "scoped-key"
+
+    def test_secret_scope_key_missing(self, monkeypatch):
+        import agent.secret_scope as ss
+
+        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: None)
+        assert _load_key_via_hermes() is None
+
+    def test_secret_scope_unavailable_returns_none(self, monkeypatch):
+        """Outside Hermes (standalone CLI/tests) the import fails cleanly."""
+        monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
+        assert _load_key_via_hermes() is None
+
+    def test_plugin_does_not_read_os_environ(self, monkeypatch):
+        """Review demand: no bare ``os.environ[PRI...]`` read for the key."""
+        monkeypatch.setenv("PRIVACY_SHIELD_KEY", "from-env")
+        monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
+        assert _load_key_via_hermes() is None  # env var must NOT be picked up
+
+    def test_load_config_uses_secret_scope(self, monkeypatch):
+        monkeypatch.setattr(ps_config, "_load_key_via_hermes", lambda: "cfg-key")
+        monkeypatch.delenv("PRIVACY_SHIELD_KEY_FILE", raising=False)
+        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
+        cfg = config.load_config()
+        assert cfg.encryption_key == "cfg-key"
+
+    def test_load_config_key_file_fallback(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(ps_config, "_load_key_via_hermes", lambda: None)
+        key_file = tmp_path / "key"
+        key_file.write_text("file-key\n")
+        monkeypatch.setenv("PRIVACY_SHIELD_KEY_FILE", str(key_file))
+        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
+        cfg = config.load_config()
+        assert cfg.encryption_key == "file-key"
+
+
+# ---------------------------------------------------------------------------
+# pass-binary hardening (C-001/H-002) — still used by restore chat-id lookup
+# ---------------------------------------------------------------------------
 
 
 def _write_stub(binary, payload="fallback-key"):
     binary.write_text(f"#!/bin/sh\necho {payload}\n")
     binary.chmod(binary.stat().st_mode | stat.S_IXUSR)
-
-
-class TestPassPathFallback:
-    def test_resolves_via_shutil_which(self, fake_pass):
-        key = _load_key_from_pass()
-        assert key == "stub-key-from-pass"
-
-    def test_falls_back_to_local_bin_when_absent_from_path(
-        self, tmp_path, monkeypatch
-    ):
-        # No pass anywhere on PATH, but a working binary at the fallback path
-        # (resolved via getpwuid home, NOT the HOME env var).
-        local_bin = tmp_path / ".local" / "bin"
-        local_bin.mkdir(parents=True)
-        _write_stub(local_bin / "pass")
-
-        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-        monkeypatch.setenv("HOME", str(tmp_path / "hijacked"))
-        monkeypatch.setattr(config.Path, "home", staticmethod(lambda: tmp_path))
-
-        class _FakePwd:
-            pw_dir = str(tmp_path)
-
-        monkeypatch.setattr(pwd, "getpwuid", lambda uid: _FakePwd(), raising=False)
-        key = _load_key_from_pass()
-        assert key == "fallback-key"
-
-    def test_returns_none_when_no_pass_at_all(self, tmp_path, monkeypatch):
-        monkeypatch.setenv("PATH", str(tmp_path / "empty"))
-        monkeypatch.setattr(config.Path, "home", staticmethod(lambda: tmp_path))
-
-        class _FakePwd:
-            pw_dir = str(tmp_path)
-
-        monkeypatch.setattr(pwd, "getpwuid", lambda uid: _FakePwd(), raising=False)
-        assert _load_key_from_pass() is None
-
-    def test_load_config_prefers_pass_key(self, fake_pass, monkeypatch):
-        monkeypatch.delenv("PRIVACY_SHIELD_KEY", raising=False)
-        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
-        cfg = config.load_config()
-        assert cfg.encryption_key == "stub-key-from-pass"
-
-
-def test_module_path_env_independent(monkeypatch, tmp_path):
-    """Sanity: _load_key_from_pass must not rely on sys.path-side effects."""
-    monkeypatch.setenv("PATH", "")
-    monkeypatch.setattr(config.Path, "home", staticmethod(lambda: tmp_path))
-
-    class _FakePwd:
-        pw_dir = str(tmp_path / "nonexistent-home")
-
-    monkeypatch.setattr(pwd, "getpwuid", lambda uid: _FakePwd(), raising=False)
-    assert _load_key_from_pass() is None
 
 
 class TestPassBinaryHardening:
@@ -127,26 +98,17 @@ class TestPassBinaryHardening:
         evil_pass.chmod(evil_pass.stat().st_mode | stat.S_IXUSR)
 
         monkeypatch.setenv("HOME", str(evil))
-        key = _load_key_from_pass()
 
-        assert key != "pwned-key"
         assert not marker.exists(), "attacker binary was executed"
         assert _resolve_pass_binary() is None
 
     def test_fallback_uses_pwd_home_not_env_home(self, tmp_path, monkeypatch):
-        """Legit binary under the real (getpwuid) home still works, even with
-        a hostile HOME pointing elsewhere."""
         local_bin = tmp_path / ".local" / "bin"
         local_bin.mkdir(parents=True)
         _write_stub(local_bin / "pass")
 
-        real_home = pwd.getpwuid(os.getuid()).pw_dir
-        # Whitelist must contain the REAL home bin dir; patch Path.home
-        # so the test does not depend on where this checkout lives.
         monkeypatch.setattr(config.Path, "home", staticmethod(lambda: tmp_path))
-        # But getpwuid returns the real home — so instead run the stub there?
-        # No: keep the test fully hermetic. Patch getpwuid instead of relying
-        # on it, and verify _resolve_pass_binary resolves via the whitelist.
+
         class _FakePwd:
             pw_dir = str(tmp_path)
 
@@ -154,7 +116,6 @@ class TestPassBinaryHardening:
             pwd, "getpwuid", lambda uid: _FakePwd(), raising=False
         )
         monkeypatch.setenv("HOME", str(tmp_path / "hijacked"))
-        # tmp_path/.local/bin is the whitelist parent under the patched home.
         assert str(local_bin) == str(config.Path.home() / ".local" / "bin")
         resolved = _resolve_pass_binary()
         assert resolved == str(local_bin / "pass")
@@ -171,7 +132,6 @@ class TestPassBinaryHardening:
 
         monkeypatch.setattr(pwd, "getpwuid", lambda uid: _FakePwd(), raising=False)
         assert _resolve_pass_binary() is None
-        assert _load_key_from_pass() is None
 
     def test_h002_rejects_symlink_escaping_whitelist(self, tmp_path, monkeypatch):
         """Symlink at ~/.local/bin/pass pointing to attacker dir → rejected."""
@@ -191,8 +151,7 @@ class TestPassBinaryHardening:
         assert _resolve_pass_binary() is None
 
     def test_h002_accepts_symlink_within_whitelist(self, tmp_path, monkeypatch):
-        """A symlink that stays inside ~/.local/bin (e.g. to a versioned
-        binary in the same dir) is legitimate and must keep working."""
+        """A symlink that stays inside ~/.local/bin is legitimate."""
         local_bin = tmp_path / ".local" / "bin"
         local_bin.mkdir(parents=True)
         _write_stub(local_bin / "pass-1.9")
@@ -226,8 +185,6 @@ class TestPassBinaryHardening:
         local_bin.mkdir(parents=True)
         stub = local_bin / "pass"
         _write_stub(stub)
-        # Simulate a foreign owner by chowning to nobody (uid -2 on macOS,
-        # 65534 on Linux) — may require privileges; skip if it fails.
         try:
             os.chown(stub, 65534, 65534)
         except PermissionError:
@@ -243,16 +200,17 @@ class TestPassBinaryHardening:
     def test_end_to_end_real_env_home_never_reaches_fallback(
         self, tmp_path, monkeypatch
     ):
-        """The full Agent-Smith PoC against load_config: even with HOME fully
-        hijacked, no attacker binary runs and no key is returned from it."""
+        """The full Agent-Smith PoC: even with HOME fully hijacked, no
+        attacker binary runs and no key is returned from it."""
         evil = tmp_path / "evil"
         (evil / ".local" / "bin").mkdir(parents=True)
         _write_stub(evil / ".local" / "bin" / "pass", payload="pwned-key")
         monkeypatch.setenv("HOME", str(evil))
-        monkeypatch.delenv("PRIVACY_SHIELD_KEY", raising=False)
-
-        class _FakePwd:
-            pw_dir = pwd.getpwuid(os.getuid()).pw_dir
+        monkeypatch.delenv("PRIVACY_SHIELD_KEY_FILE", raising=False)
+        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
+        monkeypatch.setattr(
+            ps_config, "_load_key_via_hermes", lambda: None
+        )
 
         # getpwuid untouched: the real user home is outside the fake whitelist
         # patched below, so the fallback must resolve to None.

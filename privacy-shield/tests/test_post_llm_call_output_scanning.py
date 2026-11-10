@@ -26,6 +26,7 @@ from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.mapping_table import InMemoryMappingTable, MappingTable
 from privacy_shield.plugin import PrivacyShieldPlugin
 from privacy_shield.pseudonymizer import Pseudonymizer
+from _shield_contract_seam import staged_result as _staged_result
 
 
 # ── Shared fixtures ──────────────────────────────────────────────────────
@@ -70,9 +71,12 @@ def _seed_session_with_token(plugin, *, session_id: str, original: str, pii_type
 
     Returns the emitted token string so the test can reference it directly.
     """
-    redacted = plugin.pre_llm_call(
-        f"contact: {original}",
-        context={"session_id": session_id, "provider": "openai"},
+    redacted = _staged_result(
+        plugin,
+        plugin.pre_llm_call(
+            f"contact: {original}",
+            context={"session_id": session_id, "provider": "openai"},
+        ),
     )["user_message"]
     # The token prefix is configurable (TOKEN / PS); pick the longest match
     # that uses the configured prefix so the test does not depend on the

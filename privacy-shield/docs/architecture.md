@@ -14,49 +14,26 @@
 
 Privacy-Shield ist ein Defense-in-Depth System. Es schuetzt persoenliche Daten auf zwei Ebenen:
 
-1. Plugin-Ebene: Erkennung und Tokenisierung von PII
-2. Core-Ebene: Hard-Block, falls das Plugin fehlt
+1. Plugin-Ebene: Erkennung und Tokenisierung von PII (pre_llm_call + llm_request-Middleware)
+2. Provider-Ebene: Nur Tokens verlassen die Maschine; lokale Provider (Ollama) werden ausgespart
 
-Diese zweistufige Absicherung ist notwendig. Ein Update kann das Plugin deaktivieren. Der Core-Hook blockiert dann alle LLM-Anfragen.
+Das Plugin nutzt ausschliesslich die Upstream-Hook-/Middleware-Contracts des Hermes Agent
+(pre_llm_call-Veto, llm_request-Middleware, transform_llm_output, post_api_request,
+on_session_finalize). Es werden KEINE Core-Dateien gepatcht und KEINE Crontab-Eintraege
+angelegt — ein `hermes update` kann die Funktionalitaet daran nicht veraendern.
 
 ## Komponenten
 
 ### 1. Plugin (privacy-shield/)
 
-- __init__.py — Plugin-Entry-Point
-- plugin.py — Hook-Registration (pre_llm_call)
+- __init__.py — Plugin-Entry-Point, Hook- + Middleware-Registration
+- plugin.py — pre_llm_call-Pipeline + llm_request-Middleware-Anwendung
 - config.py — Konfiguration mit Phase-1-Defaults
 - detectors/ — Regex-basierte PII-Erkennung
 - pseudonymizer.py — Deterministische Token-Erzeugung
 - mapping_table.py — SQLite + AES-256-GCM Speicherung
 
-### 2. Core-Hook (run_agent.py)
-
-Ein duenner Patch in `turn_context.py`. Er prueft vor jedem LLM-Call:
-
-```python
-if config.privacy_shield.enabled and not has_pre_llm_call_hook():
-    raise PrivacyShieldMissingError(
-        "Privacy-Shield Plugin fehlt. "
-        "Installiere: hermes plugin install privacy-shield"
-    )
-```
-
 Der Hook ist optional. Er blockiert nur, wenn Privacy-Shield aktiv sein sollte.
-
-### 3. Auto-Apply (Update-Resilience)
-
-Nach einem `hermes update` wird `turn_context.py` ueberschrieben. Der Core-Hook verschwindet.
-
-```
-Cron (alle 6h) -> auto_apply_hook.py --apply -> Pruefe Patch-Status
-                                     -> Falls fehlend: Patch
-                                     -> Syntax-Check
-                                     -> Verify
-                                     -> Log
-```
-
-Das Script ist idempotent. Mehrfach-Ausfuehrung ist harmlos.
 
 ## Security-Modell
 
@@ -70,54 +47,14 @@ Das Script ist idempotent. Mehrfach-Ausfuehrung ist harmlos.
 
 | Bedrohung | Schutz |
 |---|---|
-| PII gelangt ungeschuetzt zur Cloud | Regex-Filter + Tokenisierung |
-| Plugin wird deaktiviert | Core-Hard-Block |
-| Update entfernt Core-Hook | Auto-Apply-Cron |
-| Auto-Apply schlaegt fehl | Telegram-Alert |
+| PII gelangt ungeschuetzt zur Cloud | Regex-Filter + Tokenisierung (Middleware greift vor dem API-Request) |
+| Plugin wird deaktiviert | LLM-Requests laufen unmodifiziert (fail-open); Veto-Schutz via `strict`/`paranoid` per pre_llm_call |
 | Lokale Mapping-Tabelle wird gestohlen | AES-256-GCM Verschluesselung |
-
-## Update-Resilience im Detail
-
-### auto_apply_hook.py
-
-Das Python-Script bietet folgende Modi:
-
-| Flag | Zweck |
-|------|-------|
-| `--status` | Zeigt aktuellen Status an |
-| `--dry-run` | Zeigt was gemacht wuerde |
-| `--apply` | Wendet Patch an (idempotent) |
-| `--revert` | Stellt letzten Backup wieder her |
-| `--install-cron` | Richtet Cron-Job ein |
-
-### Exit-Codes
-
-| Code | Bedeutung |
-|------|-----------|
-| 0 | Erfolg |
-| 1 | Fehler |
-| 2 | Fehler + Rollback |
-| 3 | Unbekanntes Layout |
-| 4 | Backup nicht gefunden |
-
-### Rollback-Mechanismus
-
-Vor jedem Patch wird ein Backup erstellt:
-
-```
-turn_context.py.bak.<timestamp>
-```
-
-Falls der Patch einen Syntaxfehler erzeugt, wird automatisch Rollback durchgefuehrt.
 
 ## Datenfluss
 
 ```
 Nutzer-Input
-      |
-      v
-Core-Hook prueft: Plugin vorhanden?
-      |--- Nein: Hard-Block (Fehlermeldung)
       |
       v
 pre_llm_call Hook
@@ -129,9 +66,15 @@ Regex-Detektor scannt Text
 PII gefunden? -> Pseudonymizer erzeugt Token
       |                                    |
       |--- Nein: Text unveraendert         |
-      |                                    |
+      |                                    | (strict/paranoid: {"action": "block",
+      v                                    |  "message": ...} = Turn-Veto)
       v                                    v
-Tokenisierte Anfrage -> LLM-API    Mapping-Tabelle speichert Token<->Original
+      v                              Mapping-Tabelle speichert Token<->Original,
+llm_request Middleware schreibt die       sanitized Prompt wird fuer den
+User-Message im api_kwargs um       -->   naechsten Request gestaged
+      |
+      v
+Tokenisierte Anfrage -> LLM-API
       |
       v
 LLM-Antwort
@@ -148,7 +91,7 @@ Anzeige fuer Nutzer
 Die Mapping-Tabelle speichert Token<->Original-Paare in SQLite.
 
 - Verschluesselung: AES-256-GCM
-- Schluesselquelle: pass hermes/privacy-shield (bevorzugt) oder PRIVACY_SHIELD_KEY
+- Schluesselquelle: PRIVACY_SHIELD_KEY via Hermes secret_scope (requires_env; z.B. Keychain oder pass-store Secret-Source-Plugin)
 - Tabelle wird regelmaessig aufgeraeumt (retention_days)
 
 ## Spec-Referenz
@@ -171,49 +114,26 @@ High-Risk-Modus und Human-Review-Queue sind Phase 2 — nicht in dieser Version 
 
 Privacy-Shield is a defense-in-depth system. It protects personal data on two levels:
 
-1. Plugin level: Detection and tokenization of PII
-2. Core level: Hard block if the plugin is missing
+1. Plugin level: detection and tokenization of PII (pre_llm_call + llm_request middleware)
+2. Provider level: only tokens leave the machine; local providers (Ollama) are exempt
 
-This two-layer protection is necessary. An update can disable the plugin. The core hook then blocks all LLM requests.
+The plugin uses only the upstream hook/middleware contracts of the Hermes Agent
+(pre_llm_call veto, llm_request middleware, transform_llm_output, post_api_request,
+on_session_finalize). It does NOT patch core files and does NOT create crontab
+entries — a `hermes update` cannot break its functionality.
 
 ## Components
 
 ### 1. Plugin (privacy-shield/)
 
-- __init__.py — Plugin entry point
-- plugin.py — Hook registration (pre_llm_call)
-- config.py — Configuration with Phase 1 defaults
-- detectors/ — Regex-based PII detection
-- pseudonymizer.py — Deterministic token generation
+- __init__.py — plugin entry point, hook + middleware registration
+- plugin.py — pre_llm_call pipeline + llm_request middleware application
+- config.py — configuration with Phase 1 defaults
+- detectors/ — regex-based PII detection
+- pseudonymizer.py — deterministic token generation
 - mapping_table.py — SQLite + AES-256-GCM storage
 
-### 2. Core Hook (run_agent.py)
-
-A thin patch in `turn_context.py`. It checks before every LLM call:
-
-```python
-if config.privacy_shield.enabled and not has_pre_llm_call_hook():
-    raise PrivacyShieldMissingError(
-        "Privacy-Shield plugin is missing. "
-        "Install with: hermes plugin install privacy-shield"
-    )
-```
-
-The hook is optional. It blocks only if Privacy-Shield should be active.
-
-### 3. Auto-Apply (Update Resilience)
-
-After a `hermes update`, `turn_context.py` is overwritten. The core hook disappears.
-
-```
-Cron (every 6h) -> auto_apply_hook.py --apply -> Check patch status
-                                       -> If missing: patch
-                                       -> Syntax check
-                                       -> Verify
-                                       -> Log
-```
-
-The script is idempotent. Running it multiple times is harmless.
+The hook is optional. It vetoes only when Privacy-Shield should be active.
 
 ## Security Model
 
@@ -227,54 +147,14 @@ The script is idempotent. Running it multiple times is harmless.
 
 | Threat | Protection |
 |---|---|
-| PII reaches cloud unprotected | Regex filter + tokenization |
-| Plugin is disabled | Core hard block |
-| Update removes core hook | Auto-apply cron |
-| Auto-apply fails | Telegram alert |
+| PII reaches cloud unprotected | Regex filter + tokenization (middleware runs before the API request) |
+| Plugin is disabled | LLM requests run unmodified (fail-open); veto protection via `strict`/`paranoid` pre_llm_call |
 | Local mapping table is stolen | AES-256-GCM encryption |
-
-## Update Resilience in Detail
-
-### auto_apply_hook.py
-
-The Python script offers the following modes:
-
-| Flag | Purpose |
-|------|---------|
-| `--status` | Shows current status |
-| `--dry-run` | Shows what would be done |
-| `--apply` | Applies patch (idempotent) |
-| `--revert` | Restores last backup |
-| `--install-cron` | Sets up cron job |
-
-### Exit Codes
-
-| Code | Meaning |
-|------|---------|
-| 0 | Success |
-| 1 | Error |
-| 2 | Error + rollback |
-| 3 | Unknown layout |
-| 4 | Backup not found |
-
-### Rollback Mechanism
-
-A backup is created before every patch:
-
-```
-turn_context.py.bak.<timestamp>
-```
-
-If the patch produces a syntax error, rollback is performed automatically.
 
 ## Data Flow
 
 ```
 User Input
-      |
-      v
-Core hook checks: Plugin present?
-      |--- No: Hard block (error message)
       |
       v
 pre_llm_call Hook
@@ -286,9 +166,15 @@ Regex detector scans text
 PII found? -> Pseudonymizer generates token
       |                                    |
       |--- No: Text unchanged              |
-      |                                    |
+      |                                    | (strict/paranoid: {"action": "block",
+      v                                    |  "message": ...} = turn veto)
       v                                    v
-Tokenized request -> LLM API    Mapping table stores token<->original
+      v                              Mapping table stores token<->original,
+llm_request middleware rewrites the        sanitized prompt is staged for the
+user message in api_kwargs        -->      next outgoing request
+      |
+      v
+Tokenized request -> LLM API
       |
       v
 LLM Response
@@ -305,7 +191,7 @@ Display for user
 The mapping table stores token<->original pairs in SQLite.
 
 - Encryption: AES-256-GCM
-- Key source: pass hermes/privacy-shield (preferred) or PRIVACY_SHIELD_KEY
+- Key source: PRIVACY_SHIELD_KEY via Hermes secret_scope (requires_env; e.g. Keychain or pass-store secret-source plugin)
 - Table is regularly cleaned up (retention_days)
 
 ## Spec Reference

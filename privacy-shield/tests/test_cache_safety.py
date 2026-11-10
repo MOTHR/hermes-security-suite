@@ -7,6 +7,7 @@ import pytest
 from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.mapping_table import InMemoryMappingTable
 from privacy_shield.plugin import PrivacyShieldPlugin
+from _shield_contract_seam import staged_result as _staged_result
 
 
 @pytest.fixture
@@ -73,7 +74,10 @@ class TestVaultBypass:
 
     def test_non_vault_source_pseudonymized(self, plugin):
         text = "mail an alice@example.com"
-        result = plugin.pre_llm_call(text, context={"content_source": "web_extract", "session_id": "s1"})
+        result = _staged_result(
+            plugin,
+            plugin.pre_llm_call(text, context={"content_source": "web_extract", "session_id": "s1"}),
+        )
         assert result is not None
         assert "alice@example.com" not in result["user_message"]
 
@@ -82,7 +86,9 @@ class TestEgressPrevention:
     def test_restore_allowed_for_telegram_test_chat(self, plugin):
         plugin.config.restore_allowed_channels = ("telegram:TEST_CHAT_ID",)
         text = "mail an alice@example.com"
-        redacted = plugin.pre_llm_call(text, context={"session_id": "s1"})["user_message"]
+        redacted = _staged_result(
+            plugin, plugin.pre_llm_call(text, context={"session_id": "s1"})
+        )["user_message"]
         token_match = re.search(r"TOKEN_EMAIL_[0-9a-f]{10}_\d{3}", redacted)
         assert token_match, "no token generated"
         real_token = token_match.group(0)
@@ -92,14 +98,18 @@ class TestEgressPrevention:
 
     def test_restore_blocked_for_write_file(self, plugin):
         text = "mail an alice@example.com"
-        redacted = plugin.pre_llm_call(text, context={"session_id": "s1"})["user_message"]
+        redacted = _staged_result(
+            plugin, plugin.pre_llm_call(text, context={"session_id": "s1"})
+        )["user_message"]
         result = plugin.post_llm_response(redacted, session_id="s1", target_channel="write_file")
         assert "alice@example.com" not in result
         assert "TOKEN_EMAIL_" in result
 
     def test_restore_blocked_for_unknown_channel(self, plugin):
         text = "mail an alice@example.com"
-        redacted = plugin.pre_llm_call(text, context={"session_id": "s1"})["user_message"]
+        redacted = _staged_result(
+            plugin, plugin.pre_llm_call(text, context={"session_id": "s1"})
+        )["user_message"]
         result = plugin.post_llm_response(redacted, session_id="s1", target_channel="")
         assert "alice@example.com" not in result
 
@@ -107,13 +117,15 @@ class TestEgressPrevention:
 class TestCacheBypassTag:
     def test_cache_bypass_prefix_added(self, plugin):
         text = "mail an alice@example.com"
-        result = plugin.pre_llm_call(text, context={"session_id": "s1"})
+        result = _staged_result(
+            plugin, plugin.pre_llm_call(text, context={"session_id": "s1"})
+        )
         assert "[Privacy-Shield Session:s1:" in result["user_message"]
         assert "[PS:s1:" in result["user_message"]
         assert "privacy-shield session=s1" in result["user_message"]
 
     def test_cache_bypass_changes_between_calls(self, plugin):
         text = "mail an alice@example.com"
-        r1 = plugin.pre_llm_call(text, context={"session_id": "s1"})
-        r2 = plugin.pre_llm_call(text, context={"session_id": "s1"})
+        r1 = _staged_result(plugin, plugin.pre_llm_call(text, context={"session_id": "s1"}))
+        r2 = _staged_result(plugin, plugin.pre_llm_call(text, context={"session_id": "s1"}))
         assert r1["user_message"] != r2["user_message"]

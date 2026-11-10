@@ -4,7 +4,7 @@
 
 DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visible LLM output and reasoning content.
 
-**Version:** 1.8.0 (2026-11-06) — 58 detection patterns · 1066 tests · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
+**Version:** 1.9.0 (2026-11-10) — 58 detection patterns · pure upstream plugin contract (llm_request middleware + pre_llm_call veto) · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
 
 ## Features
 
@@ -24,18 +24,18 @@ DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visibl
 ## Quickstart (5 minutes)
 
 ```bash
-# 1. Install (via Git — GitHub access required)
-pip install git+https://github.com/MOTHR/hermes-security-suite#subdirectory=privacy-shield
-# or for development with editable source
-pip install -e .
+# 1. Install through the Hermes plugin system (installs the dashboard +
+#    desktop halves itself; no pip into Hermes's venv, no core patching)
+hermes plugins install <source>/privacy-shield
+hermes plugins enable privacy-shield   # per profile
 
-# 2. Generate encryption key (once)
-python3 -c "import secrets; print(secrets.token_hex(32))" | pass insert hermes/privacy-shield-key
+# 2. Provide the encryption key
+privacy-shield setup                    # stores a generated key in pass
+# Or declare PRIVACY_SHIELD_KEY via any Hermes secret source
+# (keychain / pass-store secret-source plugin, command source, .env).
+# The plugin resolves it through agent.secret_scope (requires_env).
 
-# 3. Enable plugin (Hermes loader)
-# In config.yaml: plugins.enabled: [privacy-shield]
-
-# 4. Test
+# 3. Test
 privacy-shield --help
 privacy-shield scan "Contact: alice@example.com"
 privacy-shield test --text "Help with alice@example.com and IBAN DE89370400440532013000"
@@ -52,7 +52,7 @@ Privacy-Shield ships an official desktop plugin so you can tune settings in the 
 - Toggle PDF / Image OCR / cache bypass
 - Run a synthetic restore smoke test
 
-The desktop plugin is bundled in `desktop/` and automatically copied to `~/.hermes/desktop-plugins/privacy-shield-controls/` when the package is installed (`pip install` or `pip install -e .`). **No manual copying is required.**
+The desktop plugin is bundled in `desktop/` and installed by the Hermes plugin system itself (`hermes plugins install` / `hermes plugins enable`). **No manual copying to `~/.hermes/desktop-plugins/` is required or performed.**
 
 The backend lives in `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system at `/api/plugins/privacy-shield/`.
 
@@ -85,6 +85,13 @@ plugins:
 ```
 
 **Limitations:** See [`docs/reasoning-protection.md`](docs/reasoning-protection.md) for coverage details and the (resolved) persistence-limitation history.
+
+> **Data handling note — read this (default behaviour):** by default the
+> restore pass writes **real personal data back into replies** on the
+> user-facing channels `telegram`, `desktop`, `cli` and `kanban`. Once
+> restored, the reply leaves your machine un-redacted. Operators who do not
+> want plaintext PII in delivered replies must remove those channels from
+> `restore_allowed_channels` or switch restore off.
 
 ### Restore-Miss handling, splice repair, kanban channel (v1.7.6)
 
@@ -142,16 +149,19 @@ or placeholder-substituted.
 ```
 LLM request with PII
     ↓
-pre_llm_call() hook
+pre_llm_call() hook  (upstream contract)
     ├─ PDF → pdfplumber → text
     ├─ Image → Tesseract OCR → text
     └─ Plain text directly
     ↓
 RegexPIIDetector.scan() — 58 patterns
-    ↓
+    ↓   (strict, known cloud provider / paranoid →
+    ↓    {"action": "block", "message": ...} turns veto)
 Pseudonymizer.replace() — token instead of original
     ↓
-MappingTable.store() — in-memory + AES-256-GCM
+MappingTable.store() — in-memory + AES-256-GCM, sanitized prompt STAGED
+    ↓
+llm_request middleware rewrites the user message in api_kwargs
     ↓
 Provider receives only tokens
     ↓

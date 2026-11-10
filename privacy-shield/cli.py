@@ -11,7 +11,6 @@ Usage:
 
 from __future__ import annotations
 
-import os
 import secrets
 import subprocess
 import sys
@@ -35,20 +34,21 @@ def main() -> None:
 
 
 @main.command()
-@click.option("--key-install", is_flag=True, help="Only re-install encryption key (skip config/symlinks).")
-def setup(key_install: bool) -> None:
-    """One-click setup: generate key, store in pass, enable plugin in all profiles.
+def setup() -> None:
+    """Generate the encryption key and store it in the pass password store.
 
-    Use --key-install to regenerate and store the key only, leaving existing
-    config and profile symlinks untouched.
+    The key is declared in plugin.yaml under requires_env
+    (PRIVACY_SHIELD_KEY); Hermes resolves it through its configured secret
+    sources at plugin load. This command only provisions the value — it does
+    not touch ~/.hermes/.env, ~/.hermes/config.yaml, profile symlinks or
+    Hermes's venv. Install the plugin itself via
+    ``hermes plugins install`` + ``hermes plugins enable``.
     """
     click.echo(f"Privacy-Shield Setup v{__version__}")
     click.echo("=" * 40)
 
     key = secrets.token_hex(32)
-    pass_ok = False
 
-    # 1. Try pass-store first
     try:
         result = subprocess.run(
             ["pass", "insert", "-m", "hermes/privacy-shield-key"],
@@ -56,129 +56,21 @@ def setup(key_install: bool) -> None:
         )
         pass_ok = result.returncode == 0
     except (FileNotFoundError, subprocess.TimeoutExpired):
-        pass
+        pass_ok = False
 
     if pass_ok:
         click.echo("✓ Key stored in pass-store: hermes/privacy-shield-key")
     else:
-        env_path = Path.home() / ".hermes" / ".env"
-        env_path.parent.mkdir(parents=True, exist_ok=True)
-        marker = f"PRIVACY_SHIELD_KEY={key}"
-        lines = env_path.read_text().splitlines() if env_path.exists() else []
-        if not any(line.startswith("PRIVACY_SHIELD_KEY=") for line in lines):
-            with open(env_path, "a") as f:
-                f.write(f"\n{marker}\n")
-            os.chmod(env_path, 0o600)
-        click.echo(f"✓ Key stored in {env_path} (pass-store not available)")
-
-    if key_install:
-        click.echo("\n--key-install requested: config/symlinks/pip unchanged.")
-        return
-
-    # 2. Ensure plugin is registered in ~/.hermes/config.yaml
-    config_path = Path.home() / ".hermes" / "config.yaml"
-    config_path.parent.mkdir(parents=True, exist_ok=True)
-    config_lines = config_path.read_text().splitlines() if config_path.exists() else []
-    _ensure_config_entry(config_lines, config_path)
-    click.echo("✓ Plugin registered in ~/.hermes/config.yaml")
-
-    # 3. Symlink plugin into every profile.
-    # Profile set: explicit override via PRIVACY_SHIELD_PROFILES ("a,b,c"),
-    # otherwise every profile directory found on disk. This used to be a
-    # hard-coded fleet roster — a local deployment detail that does not
-    # belong in a public plugin; with discovery the rollout covers whatever
-    # actually exists, and a missing entry can only occur in override mode.
-    plugin_root = Path(__file__).resolve().parent
-    profiles_dir = Path.home() / ".hermes" / "profiles"
-    override = os.environ.get("PRIVACY_SHIELD_PROFILES", "")
-    if override.strip():
-        canonical_profiles = tuple(
-            name.strip() for name in override.split(",") if name.strip()
-        )
-    elif profiles_dir.is_dir():
-        canonical_profiles = tuple(
-            sorted(p.name for p in profiles_dir.iterdir() if p.is_dir())
-        )
-    else:
-        canonical_profiles = ()
-    linked = 0
-    skipped = 0
-    missing: list[str] = []
-    if profiles_dir.exists():
-        for profile_name in canonical_profiles:
-            profile_dir = profiles_dir / profile_name
-            if not profile_dir.is_dir():
-                missing.append(profile_name)
-                continue
-            plugins_dir = profile_dir / "plugins"
-            plugins_dir.mkdir(exist_ok=True)
-            link_path = plugins_dir / "privacy-shield"
-            if link_path.exists() or link_path.is_symlink():
-                if link_path.is_symlink() and link_path.resolve() != plugin_root:
-                    link_path.unlink()
-                else:
-                    skipped += 1
-                    continue
-            try:
-                link_path.symlink_to(plugin_root)
-                linked += 1
-            except OSError:
-                pass
-    else:
         click.echo(
-            f"⚠  Profiles directory {profiles_dir} not found; "
-            "skipping multi-profile rollout."
+            "✗ pass-store not available. Declare PRIVACY_SHIELD_KEY via your "
+            "Hermes secret sources instead (e.g. config.yaml secrets "
+            "keychain env_map, or the requires_env prompt)."
         )
-    click.echo(f"✓ Symlinked plugin into {linked} profile(s) ({skipped} already linked)")
-    if missing:
-        click.echo(
-            "⚠  Profiles in PRIVACY_SHIELD_PROFILES missing on disk (not symlinked): "
-            + ", ".join(missing)
-            + "\n   Run `privacy-shield setup` again after creating them."
-        )
-
-    # 4. Reinstall editable package so import paths are fresh
-    pip_result = subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-e", str(plugin_root), "--force-reinstall", "--no-deps"],
-        capture_output=True, text=True, timeout=120,
-    )
-    if pip_result.returncode != 0:
-        click.echo("⚠ pip install -e . failed:", err=True)
-        click.echo(pip_result.stderr[-500:], err=True)
-    else:
-        click.echo("✓ Reinstalled editable package")
 
     click.echo("\nNext steps:")
+    click.echo("  hermes plugins install <source>/privacy-shield && hermes plugins enable privacy-shield")
     click.echo("  privacy-shield status")
     click.echo("  privacy-shield scan \"test@example.com\"")
-
-
-def _ensure_config_entry(lines: list[str], path: Path) -> None:
-    """Ensure config.yaml has plugins.entries.privacy-shield.enabled = true."""
-    try:
-        import yaml as _yaml
-        data = _yaml.safe_load("\n".join(lines)) or {}
-        plugins = data.setdefault("plugins", {})
-        entries = plugins.setdefault("entries", {})
-        entry = entries.setdefault("privacy-shield", {})
-        entry["enabled"] = True
-        entry["path"] = str(Path(__file__).resolve().parent)
-        with open(path, "w") as f:
-            _yaml.dump(data, f, default_flow_style=False, sort_keys=False)
-        return
-    except Exception:
-        pass
-
-    # Fallback: append a minimal YAML block if parsing fails
-    snippet = [
-        "plugins:",
-        "  entries:",
-        "    privacy-shield:",
-        "      enabled: true",
-        f"      path: {Path(__file__).resolve().parent}",
-    ]
-    with open(path, "a") as f:
-        f.write("\n" + "\n".join(snippet) + "\n")
 
 
 @main.command()

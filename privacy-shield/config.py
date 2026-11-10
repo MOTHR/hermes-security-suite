@@ -367,35 +367,21 @@ def _resolve_pass_binary() -> str | None:
     return candidate
 
 
-def _load_key_from_pass() -> str | None:
-    """Try to load encryption key from pass password store.
+def _load_key_via_hermes() -> str | None:
+    """Resolve the encryption key through Hermes' secret-scope machinery.
 
-    Preferred key source order: pass wrapper, then .env.
-    Uses: pass show hermes/privacy-shield-key
+    The key is declared in ``plugin.yaml`` under ``requires_env`` as
+    ``PRIVACY_SHIELD_KEY``; Hermes resolves the value through its configured
+    secret sources (env loader, Keychain / pass-store secret-source plugins,
+    command source). The plugin must not read ``os.environ`` or invoke the
+    ``pass`` binary itself.
     """
-    # launchd environments (gateway hooks) often lack ~/.local/bin in PATH,
-    # so resolve the binary explicitly with a validated filesystem fallback
-    # (C-001/H-002 hardening — see _resolve_pass_binary).
-    pass_bin = _resolve_pass_binary()
-    if pass_bin is None:
-        return None
     try:
-        result = subprocess.run(
-            [pass_bin, "show", "hermes/privacy-shield-key"],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode == 0 and result.stdout.strip():
-            return result.stdout.strip()
-    except (FileNotFoundError, subprocess.TimeoutExpired, OSError):
-        pass
-    return None
-
-
-def _load_key_from_env() -> str | None:
-    """Load encryption key from PRIVACY_SHIELD_KEY environment variable."""
-    return os.environ.get("PRIVACY_SHIELD_KEY")
+        from agent.secret_scope import get_secret
+    except ImportError:
+        # Not running inside Hermes (e.g. standalone CLI/tests): no key.
+        return None
+    return get_secret("PRIVACY_SHIELD_KEY")
 
 
 def _generate_key() -> str:
@@ -413,11 +399,11 @@ def load_config() -> PrivacyShieldConfig:
     """Load configuration with key resolution.
 
     Key loading priority:
-    1. pass show hermes/privacy-shield-key (preferred)
-    2. PRIVACY_SHIELD_KEY env var
-    3. PRIVACY_SHIELD_KEY_FILE env var (path to a file containing the key)
-    4. Workshop mode (PRIVACY_SHIELD_WORKSHOP=true): auto-generate with warning
-    5. Production mode: disable plugin and warn instead of crashing.
+    1. Hermes secret scope (PRIVACY_SHIELD_KEY via requires_env — env loader,
+       Keychain / pass-store secret-source plugins, command source)
+    2. PRIVACY_SHIELD_KEY_FILE env var (path to a file containing the key)
+    3. Workshop mode (PRIVACY_SHIELD_WORKSHOP=true): auto-generate with warning
+    4. Production mode: disable plugin and warn instead of crashing.
 
     Phase-4 change: the plugin must never crash Hermes initialization because
     of a missing key. In production without a key it falls back to enabled=False
@@ -433,14 +419,9 @@ def load_config() -> PrivacyShieldConfig:
     config = PrivacyShieldConfig()
 
     # Resolve encryption key
-    key = _load_key_from_pass()
+    key = _load_key_via_hermes()
     if key:
         config.encryption_key = key
-
-    if not config.encryption_key:
-        key = _load_key_from_env()
-        if key:
-            config.encryption_key = key
 
     if not config.encryption_key:
         key_file = os.environ.get("PRIVACY_SHIELD_KEY_FILE")

@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-__version__ = "1.8.0"
+__version__ = "1.9.0"
 
 __plugin_id__ = "privacy-shield"
 
@@ -116,7 +116,7 @@ def register(ctx: Any) -> None:
         *,
         session_id: str = "",
         user_message: str = "",
-        conversation_history: list[Any] | None = None,
+        turn_id: str = "",
         is_first_turn: bool = False,
         model: str = "",
         platform: str = "",
@@ -124,15 +124,19 @@ def register(ctx: Any) -> None:
         target_channel: str = "",
         **kwargs: Any,
     ) -> dict[str, str] | None:
-        """pre_llm_call hook: sanitize user_message before LLM API call.
+        """pre_llm_call hook: veto or stage the sanitized prompt.
 
-        Returns dict with 'user_message' key (sanitized replacement) that the
-        Core patch stamps as the api_content sidecar sent to the provider.
+        Upstream contract: only ``{"action": "block", "message": ...}`` (turn
+        veto) is consumed here. The sanitized prompt produced by the pipeline
+        is staged for the ``llm_request`` middleware instead of returned.
         """
+        if not turn_id:
+            turn_id = str(kwargs.get("turn_id") or "")
         return plugin.pre_llm_call(
             prompt=user_message,
             context={
                 "session_id": session_id,
+                "turn_id": turn_id,
                 "model": model,
                 "platform": platform,
                 "is_first_turn": is_first_turn,
@@ -142,6 +146,33 @@ def register(ctx: Any) -> None:
         )
 
     ctx.register_hook("pre_llm_call", on_pre_llm_call)
+
+    def on_llm_request(
+        *,
+        request: dict[str, Any] | None = None,
+        turn_id: str = "",
+        session_id: str = "",
+        model: str = "",
+        platform: str = "",
+        provider: str = "",
+        **kwargs: Any,
+    ) -> dict[str, Any] | None:
+        """llm_request middleware: rewrite the user message in the outgoing
+        request with the staged sanitized prompt.
+
+        The middleware chain only propagates a payload under the ``request``
+        key; returning None leaves the request untouched.
+        """
+        return plugin.apply_shield_to_request(
+            request,
+            provider=provider,
+            session_id=session_id,
+            model=model,
+            platform=platform,
+            turn_id=turn_id,
+        )
+
+    ctx.register_middleware("llm_request", on_llm_request)
 
     def on_post_llm_call(
         *,

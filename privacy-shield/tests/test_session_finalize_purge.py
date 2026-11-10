@@ -117,9 +117,13 @@ class _RecordingCtx:
 
     def __init__(self):
         self.hooks: dict[str, list] = {}
+        self.middleware: dict[str, list] = {}
 
     def register_hook(self, name, fn):
         self.hooks.setdefault(name, []).append(fn)
+
+    def register_middleware(self, kind, fn):
+        self.middleware.setdefault(kind, []).append(fn)
 
 
 def _registered_finalize(monkeypatch, storage_mode="disk", tmp_path=None):

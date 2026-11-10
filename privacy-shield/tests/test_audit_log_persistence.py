@@ -30,6 +30,7 @@ from privacy_shield.audit import (
 )
 from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.plugin import PrivacyShieldPlugin
+from _shield_contract_seam import staged_result as _staged_result
 
 
 # ── Helpers ─────────────────────────────────────────────────────────────
@@ -166,12 +167,23 @@ class TestPluginEmitsAuditEvents:
             prompt="Email: foo@example.com und Telefon +49 30 1234567",
             context={
                 "session_id": "sess-A",
+                "turn_id": "t1",
                 "model": "openai:gpt-4o",
                 "platform": "telegram",
             },
         )
-        # Sanity: pseudonymization actually happened.
-        assert result is not None and "foo@example.com" not in result["user_message"]
+        # Sanity: the mask path no longer returns; the sanitized prompt is
+        # staged — the audit event fires when the middleware REALLY applies it.
+        assert result is None
+        applied = plugin.apply_shield_to_request(
+            {"messages": [{"role": "user", "content": "Email: foo@example.com"}]},
+            provider="openai",
+            session_id="sess-A",
+            model="openai:gpt-4o",
+            platform="telegram",
+            turn_id="t1",
+        )
+        assert applied is not None
 
         path = Path(plugin.config.audit_jsonl_path)
         events = _read_audit_lines(path)
