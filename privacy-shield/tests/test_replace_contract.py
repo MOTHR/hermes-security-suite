@@ -177,16 +177,56 @@ class TestMiddlewareApplication:
         assert plugin.apply_shield_to_request(request, provider="anthropic") is None
         assert request["messages"][2]["content"] == PII_PROMPT
 
-    def test_staged_slot_is_consumed_once(self, tmp_path):
+    def test_staged_slot_persists_across_attempts(self, tmp_path):
+        """Orakel review t_c0a50b6f F-1 regression: the core rebuilds the
+        request payload PER api attempt and re-fires the middleware — the
+        staged slot must NOT be consumed once, or attempt 2+ sends raw PII."""
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turnX")
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
         first = plugin.apply_shield_to_request(request, provider="anthropic", turn_id="turnX")
         assert first is not None
         request2 = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
-        assert plugin.apply_shield_to_request(
-            request2, provider="anthropic", turn_id="turnX"
-        ) is None, "stage must be consumed by the first request"
+        second = plugin.apply_shield_to_request(request2, provider="anthropic", turn_id="turnX")
+        assert second is not None, (
+            "stage must STILL apply on the second attempt of the same turn "
+            "(per-attempt middleware reload) — consumed-once leaks raw PII"
+        )
+        assert "max.mustermann@firma-gmbh.de" not in request2["messages"][2]["content"]
+
+    def test_sidecar_context_suffix_survives(self, tmp_path):
+        """Orakel F-2 regression: the wire content carries the core's sidecar
+        (raw live prompt + '\\n\\n' + injected context). The rewrite must keep
+        the context suffix byte-exact, not replace the whole message."""
+        plugin = _make_plugin(tmp_path)
+        _run_shield(plugin, turn_id="turnX")  # stages sanitized for the raw PII prompt
+        stage = plugin._staged_shield
+        context_suffix = "\n\nPROMPT INJECTION FIREWALL (injected context)"
+        wire = stage["raw_prompt"] + context_suffix
+        request = {"messages": [{"role": "user", "content": wire}]}
+        result = plugin.apply_shield_to_request(
+            request, provider="anthropic", turn_id="turnX"
+        )
+        assert result is not None
+        out = request["messages"][0]["content"]
+        # The sanitized live prompt replaces ONLY the live portion…
+        assert "max.mustermann@firma-gmbh.de" not in out
+        assert "TOKEN_EMAIL_" in out
+        # …and the injected context suffix survives byte-exact.
+        assert out.endswith(context_suffix)
+
+    def test_unknown_shape_falls_back_to_full_masking(self, tmp_path):
+        """No raw-prompt match -> mask the whole wire content (fail-safe),
+        never ship the unmasked original."""
+        plugin = _make_plugin(tmp_path)
+        _run_shield(plugin, turn_id="turnX")
+        request = {"messages": [{"role": "user", "content":
+            "REWRITTEN PREFIX: mail an max.mustermann@firma-gmbh.de now"}]}
+        result = plugin.apply_shield_to_request(
+            request, provider="anthropic", turn_id="turnX"
+        )
+        assert result is not None
+        assert "max.mustermann@firma-gmbh.de" not in request["messages"][0]["content"]
 
     def test_turn_mismatch_does_not_apply_stale_shield(self, tmp_path):
         plugin = _make_plugin(tmp_path)

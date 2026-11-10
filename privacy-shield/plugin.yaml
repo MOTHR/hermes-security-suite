@@ -107,8 +107,11 @@ settings:
     type: float
     default: 0.85
     description: "v1.7.0 Minimum confidence (0.0-1.0) for reasoning PII auto-masking."
-# Hook execution priority: larger numbers run later.  Privacy-Shield must run
+# Hook execution priority: larger numbers run later. Privacy-Shield must run
 # AFTER injection-shield so that prompt-injection analysis already happened.
+# NOTE (review t_c0a50b6f F-3): hook_priority is DECLARATIVE ONLY — Hermes
+# v0.23 does NOT consume it; ordering relies on alphabetical plugin load
+# order. Upstream ordering support is proposed in a separate hermes-agent PR.
 hook_priority:
   pre_llm_call: 200
   post_llm_call: 200

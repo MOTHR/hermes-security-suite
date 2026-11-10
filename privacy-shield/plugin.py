@@ -361,6 +361,11 @@ class PrivacyShieldPlugin:
         """
         ctx = context or {}
         config = self.config
+        # F-2 (orakel review t_c0a50b6f): the middleware must know the LIVE
+        # prompt as it appears on the wire (before attachment expansion) so
+        # it can rewrite only the live-prompt portion and keep the core's
+        # sidecar context suffix byte-exact.
+        ctx["raw_prompt"] = prompt
         if not config.enabled:
             return None
 
@@ -557,14 +562,18 @@ class PrivacyShieldPlugin:
         if self.config.cache_bypass:
             sanitized = self.cache_bypass.inject(sanitized, ctx)
 
-        # Stage for the llm_request middleware. The audit "applied" event is
-        # only emitted by :meth:`apply_shield_to_request` when the sanitized
-        # prompt actually replaces the outgoing user message — bypassed
-        # (local) traffic must not be counted as pseudonymized.
+        # Stage for the llm_request middleware. The slot is kept across ALL
+        # api attempts of the turn (core rebuilds every attempt from the raw
+        # messages; see orakel review t_c0a50b6f F-1): never consumed, only
+        # replaced by the next turn's pre_llm_call. The audit "applied"
+        # event is emitted by :meth:`apply_shield_to_request` on the FIRST
+        # actual rewrite per turn — bypassed (local) traffic must not be
+        # counted as pseudonymized.
         self._stage_shield(
             turn_id=ctx.get("turn_id", ""),
             payload={
                 "sanitized": sanitized,
+                "raw_prompt": ctx.get("raw_prompt", ""),
                 "orig_len": len(prompt),
                 "masked_count": len(mapping),
                 "pii_types": [m.get("type", "unknown") for m in mapping],
@@ -582,21 +591,62 @@ class PrivacyShieldPlugin:
 
         Single slot per turn: the newest pre_llm_call result wins. A slot
         keyed by an empty turn_id (provider did not pass one) still matches
-        the middleware's turn_id via :meth:`_pop_staged_shield`.
+        the middleware's turn_id via :meth:`_read_staged_shield`. The slot is
+        deliberately NOT consumed by the middleware: the core rebuilds the
+        request payload per api attempt (tool loop retries) from the raw
+        messages, so every attempt must re-apply the mask. Slot lifetimes are
+        bounded by the next pre_llm_call and dropped in :meth:`on_session_end`.
         """
         entry = dict(payload)
         entry["turn_id"] = turn_id or ""
         self._staged_shield = entry
 
-    def _pop_staged_shield(self, turn_id: str) -> dict[str, Any] | None:
-        """Consume the staged shield when the turn matches (or either id unset)."""
+    def _read_staged_shield(self, turn_id: str) -> dict[str, Any] | None:
+        """Return the staged shield when the turn matches (or either id unset).
+
+        Read-only on purpose: the core fires the llm_request middleware once
+        PER API ATTEMPT (conversation_loop retry/tool loop); consuming the
+        slot on the first attempt would send raw PII from attempt 2 on
+        (orakel review t_c0a50b6f F-1, PoC-reproduced).
+        """
         staged = getattr(self, "_staged_shield", None)
         if not staged:
             return None
         if turn_id and staged.get("turn_id") and turn_id != staged.get("turn_id"):
             return None
-        self._staged_shield = None
         return staged
+
+    def _sidecar_rewrite(self, content: str, staged: dict[str, Any]) -> str | None:
+        """Rewrite ONLY the live-prompt portion of a sidecar-composed message.
+
+        The core composes the wire content as ``live_prompt + "\\n\\n" + context``
+        (``agent/turn_context.py`` compose_user_api_content) BEFORE the
+        middleware runs. Replacing the whole string would drop injected
+        context (firewall, prefetch, gateway notes; orakel F-2). Instead:
+        when the content starts with the raw live prompt, re-append the
+        byte-exact context suffix. Otherwise (unknown shape) fall back to
+        masking the entire string — never return unmasked content.
+        """
+        sanitized = staged.get("sanitized", "")
+        raw = staged.get("raw_prompt") or ""
+        if raw and content.startswith(raw):
+            return sanitized + content[len(raw):]
+        # Fallback: mask the full wire content (context included). The
+        # context parts are not restorable tokens-bearing text by design;
+        # masking them whole is fail-safe, not fail-open.
+        detections = self.detector.scan(content)
+        masked_hits, _dropped = self._partition_by_confidence(detections)
+        if not masked_hits:
+            return None
+        masked, mapping = self.pseudonymizer.replace(
+            content, masked_hits, session_id=staged.get("session_id", "")
+        )
+        self.mapper.store(
+            mapping, session_id=staged.get("session_id", ""),
+            ttl_seconds=self.config.mapping_ttl_seconds,
+        )
+        self._log_detections(mapping, staged.get("session_id", ""))
+        return masked
 
     def apply_shield_to_request(
         self,
@@ -608,15 +658,19 @@ class PrivacyShieldPlugin:
         platform: str = "",
         turn_id: str = "",
     ) -> dict[str, Any] | None:
-        """Rewrite the last user message of an outgoing LLM request with the
+        """Rewrite the user message of an outgoing LLM request with the
         staged sanitized prompt (``llm_request`` middleware callback).
 
-        Returns ``{"request": request}`` when the rewrite was applied,
-        ``None`` when nothing should change (no staged shield, local
-        provider, or no user message found). The middleware contract only
-        propagates a payload under the ``request`` key.
+        The core fires this middleware once PER api attempt of the turn and
+        rebuilds each payload from the raw messages — the staged slot is
+        therefore read-only here, and every attempt re-applies the mask
+        (orakel review t_c0a50b6f F-1/F-2). Returns ``{"request": request}``
+        when the rewrite was applied, ``None`` when nothing should change
+        (no staged shield, local provider, or no user message found). The
+        middleware contract only propagates a payload under the ``request``
+        key.
         """
-        staged = self._pop_staged_shield(turn_id)
+        staged = self._read_staged_shield(turn_id)
         if not staged:
             return None
         sanitized = staged.get("sanitized", "")
@@ -629,20 +683,27 @@ class PrivacyShieldPlugin:
         messages = request.get("messages") if isinstance(request, dict) else None
         if not isinstance(messages, list):
             return None
+        applied = False
         for msg in reversed(messages):
             if not (isinstance(msg, dict) and msg.get("role") == "user"):
                 continue
             content = msg.get("content")
             if isinstance(content, str):
-                msg["content"] = sanitized
+                rewritten = self._sidecar_rewrite(content, staged)
+                if rewritten is None:
+                    return None
+                msg["content"] = rewritten
+                applied = True
             elif isinstance(content, list):
-                replaced = False
-                for part in content:
+                for idx, part in enumerate(content):
                     if isinstance(part, dict) and part.get("type") in ("text", "input_text"):
-                        msg["content"][content.index(part)] = {**part, "text": sanitized}
-                        replaced = True
+                        rewritten = self._sidecar_rewrite(str(part.get("text", "")), staged)
+                        if rewritten is None:
+                            return None
+                        msg["content"][idx] = {**part, "text": rewritten}
+                        applied = True
                         break
-                if not replaced:
+                if not applied:
                     return None
             else:
                 return None
@@ -650,7 +711,9 @@ class PrivacyShieldPlugin:
         else:
             return None
 
-        if self.audit is not None:
+        if applied and self.audit is not None and not staged.get("audited"):
+            # One "applied" event per turn (per-attempt rewrites share it).
+            staged["audited"] = True
             self.audit.log(
                 event="pseudonymization_applied",
                 session_id=session_id or staged.get("session_id", ""),
@@ -1069,6 +1132,7 @@ class PrivacyShieldPlugin:
         token-cache entries so the same session cannot be resumed.
         """
         if not session_id:
+            self._staged_shield = None
             return
         purge = getattr(self.mapper, "purge_session", None)
         deleted = (
@@ -1082,6 +1146,10 @@ class PrivacyShieldPlugin:
             logger.debug(
                 "Privacy-Shield: pseudonymizer session shred failed", exc_info=True
             )
+        # Drop the middleware staging slot too: it holds the raw PII prompt
+        # in memory and must never outlive the session
+        # (orakel review t_c0a50b6f F-1 lifetime note).
+        self._staged_shield = None
         logger.info(
             "Privacy-Shield: session %s ended, removed %d mappings", session_id, deleted
         )

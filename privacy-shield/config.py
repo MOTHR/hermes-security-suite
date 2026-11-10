@@ -381,7 +381,14 @@ def _load_key_via_hermes() -> str | None:
     except ImportError:
         # Not running inside Hermes (e.g. standalone CLI/tests): no key.
         return None
-    return get_secret("PRIVACY_SHIELD_KEY")
+    try:
+        return get_secret("PRIVACY_SHIELD_KEY")
+    except Exception:
+        # F-4 (orakel review t_c0a50b6f): get_secret raises
+        # UnscopedSecretError when multiplexing is active without a bound
+        # scope. Treat it like a missing key (Phase-4 contract: never crash
+        # Hermes initialization) instead of failing plugin load.
+        return None
 
 
 def _generate_key() -> str:
@@ -427,11 +434,31 @@ def load_config() -> PrivacyShieldConfig:
         key_file = os.environ.get("PRIVACY_SHIELD_KEY_FILE")
         if key_file:
             try:
-                key = Path(key_file).read_text().strip()
-                if key:
-                    config.encryption_key = key
-            except OSError:
-                pass
+                # F-5 (orakel review t_c0a50b6f): refuse group/other-writable
+                # or non-regular files — a plaintext key must not be readable
+                # (or replaceable via symlink) by anyone but the owner.
+                import stat as _stat
+
+                st = os.stat(key_file)
+                if not _stat.S_ISREG(st.st_mode):
+                    logger.warning(
+                        "Privacy-Shield: PRIVACY_SHIELD_KEY_FILE %s is not a "
+                        "regular file; ignoring the fallback.",
+                        key_file,
+                    )
+                elif st.st_mode & (_stat.S_IWGRP | _stat.S_IWOTH):
+                    logger.warning(
+                        "Privacy-Shield: PRIVACY_SHIELD_KEY_FILE %s is "
+                        "group/other-writable; refusing the insecure "
+                        "key file (chmod 600).",
+                        key_file,
+                    )
+                else:
+                    key = Path(key_file).read_text().strip()
+                    if key:
+                        config.encryption_key = key
+            except OSError as exc:
+                logger.debug("Privacy-Shield: KEY_FILE fallback skipped: %s", exc)
 
     # Workshop mode: generate ephemeral key
     if not config.encryption_key and os.environ.get("PRIVACY_SHIELD_WORKSHOP", "").lower() in ("1", "true", "yes"):
