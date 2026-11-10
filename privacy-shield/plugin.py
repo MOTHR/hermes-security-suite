@@ -650,7 +650,8 @@ class PrivacyShieldPlugin:
                 )
                 result: str = sanitized + masked_suffix
                 return result
-            return sanitized + suffix
+            plain: str = sanitized + suffix
+            return plain
         # Fallback: mask the full wire content (context included). The
         # context parts are not restorable tokens-bearing text by design;
         # masking them whole is fail-safe, not fail-open.
@@ -681,7 +682,7 @@ class PrivacyShieldPlugin:
         """
         if turn_id != getattr(self, "_memo_turn", None):
             self._memo_turn = turn_id
-            self._memo_cache = {}
+            self._memo_cache: dict[str, tuple[str, int, list[str]]] = {}
             self._memo_audited = False
 
     def _mask_user_text(self, text: str, session_id: str) -> tuple[str, int, list[str]]:
