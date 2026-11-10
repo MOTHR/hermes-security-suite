@@ -7,6 +7,23 @@ The format is inspired by [Keep a Changelog](https://keepachangelog.com/),
 adapted for an in-tree Hermes plugin (not a PyPI release). Each entry
 cross-references the review-ID it closes.
 
+## [0.8.1] - 2026-11-10
+
+### Review-Welle 1+2 (Orakel/Smith/Seraph, PR #150309): Detection- und Alert-Härtung
+
+- **Smith 002 (HIGH)**: Homoglyph-Map in `is_untrusted_source` auf den
+  TR39-Confusables-Satz erweitert (Cyrillic г→r inkl., Orakel-W2-1) —
+  Mixed-Script-Tool-Namen wie `wеb_еxtrаct`/`wеbв_extract` umgehen die
+  Untrusted-Wrap-Policy nicht mehr.
+- **Smith 003 / Orakel W2-2 (MEDIUM)**: Telegram-Alert-Fail-Paths getrennt —
+  Secret-/Scope-Failures loggen jetzt WARNING mit Grund (Multiplex-Sichtbar-
+  keit), Netzwerk-Failures bleiben am DEBUG (Rate-Limiter unverändert).
+- **Smith 005 (MEDIUM)**: explizites `urllib3>=2.8.0,<3.0` (CVE-2026-97687/
+  88/89 über den requests-Resolver).
+- Smith 004 (Telegram default-enabled) wurde als lokale Profil-Config
+  triagiert — kein Repo-Defekt, Manifest-Default bleibt opt-in.
+- Tests: 471 passed (inkl. Mixed-Script-Regression).
+
 ---
 
 ## [0.8.0] — 2026-11-10 (Hackathon-Review, NousResearch PR #150309): pure upstream hook contracts

@@ -724,13 +724,24 @@ class InjectionShieldPlugin:
 
         try:
             import requests
-
+        except Exception as exc:  # noqa: BLE001 - import failure: alert cannot run at all
+            logger.warning("injection-shield: telegram alert aborted, requests unavailable: %s", exc)
+            return
+        try:
             from agent.secret_scope import get_secret
         except Exception as exc:  # noqa: BLE001 - fail-open: alerts must never break the hook
-            logger.warning("injection-shield: telegram alert aborted, secret resolution failed: %s", exc)
+            logger.warning("injection-shield: telegram alert aborted, secret scope unavailable: %s", exc)
+            return
+        try:
+            token = get_secret("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN")
+        except Exception as exc:  # noqa: BLE001 - fail-open (Smith 003/W2-2: e.g. UnscopedSecretError under multiplex)
+            logger.warning(
+                "injection-shield: telegram alert aborted, INJECTION_SHIELD_TELEGRAM_BOT_TOKEN "
+                "unavailable (secret profile scope/multiplex): %s",
+                exc,
+            )
             return
 
-        token = get_secret("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN")
         chat_id = self.telegram_cfg.get("chat_id")
         if not token or not chat_id:
             return

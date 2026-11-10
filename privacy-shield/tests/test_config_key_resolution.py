@@ -59,10 +59,23 @@ class TestHermesSecretScopeKey:
         monkeypatch.setattr(ps_config, "_load_key_via_hermes", lambda: None)
         key_file = tmp_path / "key"
         key_file.write_text("file-key\n")
+        # W2-3 gate: the fallback refuses group/other-accessible key files.
+        key_file.chmod(0o600)
         monkeypatch.setenv("PRIVACY_SHIELD_KEY_FILE", str(key_file))
         monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
         cfg = config.load_config()
         assert cfg.encryption_key == "file-key"
+
+    def test_load_config_key_file_insecure_permissions_refused(self, monkeypatch, tmp_path):
+        """Orakel W2-3: a world-readable key file must be refused, not loaded."""
+        monkeypatch.setattr(ps_config, "_load_key_via_hermes", lambda: None)
+        key_file = tmp_path / "key"
+        key_file.write_text("file-key\n")
+        key_file.chmod(0o644)
+        monkeypatch.setenv("PRIVACY_SHIELD_KEY_FILE", str(key_file))
+        monkeypatch.delenv("PRIVACY_SHIELD_WORKSHOP", raising=False)
+        cfg = config.load_config()
+        assert cfg.encryption_key == ""
 
 
 # ---------------------------------------------------------------------------

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-__version__ = "0.8.0"  # SSO — see pyproject.toml [tool.setuptools.dynamic]
+__version__ = "0.8.1"  # SSO — see pyproject.toml [tool.setuptools.dynamic]
 
 try:
     from .plugin import InjectionShieldPlugin

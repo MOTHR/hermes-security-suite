@@ -440,17 +440,30 @@ def load_config() -> PrivacyShieldConfig:
                 import stat as _stat
 
                 st = os.stat(key_file)
+                # W2-3 (orakel wave-2): the comment promised "readable by no
+                # one but the owner" — enforce READ bits and ownership too.
                 if not _stat.S_ISREG(st.st_mode):
                     logger.warning(
                         "Privacy-Shield: PRIVACY_SHIELD_KEY_FILE %s is not a "
                         "regular file; ignoring the fallback.",
                         key_file,
                     )
-                elif st.st_mode & (_stat.S_IWGRP | _stat.S_IWOTH):
+                elif st.st_mode & (
+                    _stat.S_IWGRP
+                    | _stat.S_IWOTH
+                    | _stat.S_IRGRP
+                    | _stat.S_IROTH
+                ):
                     logger.warning(
                         "Privacy-Shield: PRIVACY_SHIELD_KEY_FILE %s is "
-                        "group/other-writable; refusing the insecure "
+                        "group/other-accessible; refusing the insecure "
                         "key file (chmod 600).",
+                        key_file,
+                    )
+                elif st.st_uid != os.getuid():
+                    logger.warning(
+                        "Privacy-Shield: PRIVACY_SHIELD_KEY_FILE %s is not "
+                        "owned by the current user; refusing.",
                         key_file,
                     )
                 else:

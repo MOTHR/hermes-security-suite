@@ -1,5 +1,30 @@
 ## [Unreleased]
 
+## [1.9.1] - 2026-11-10
+
+### Review-Welle 1+2 (Orakel/Smith/Seraph, PR #150309): Masking-Layer-Härtung
+
+- **F1 (BLOCKER, PoC reproduziert, orakel t_c0a50b6f)**: llm_request-Middleware
+  feuert PRO API-Attempt (retry/tool loop), der Staged-Slot war consume-once —
+  ab Attempt 2 ging roher User-Content unmaskiert raus. Slot ist jetzt
+  read-only (Lifetime = Turn, gelöscht in `on_session_end`).
+- **F2 (HIGH)**: Rewrite ersetzt nur den Live-Prompt-Anteil und erhält den
+  Core-Sidecar-Kontext (Firewall/Prefetch/Notes) byte-exakt; unbekannte
+  Shapes → Full-Content-Masking (fail-safe).
+- **F4**: `secret_scope.get_secret`-Fehler (z.B. UnscopedSecretError unter
+  Multiplex) werden wie "Key fehlt" behandelt — Plugin-Load crash nicht.
+- **F5**: `PRIVACY_SHIELD_KEY_FILE` verweigert nicht-reguläre Dateien,
+  group/other-zugreifbare Keys und fremde Owner (Read-Bits + Owner-Check,
+  orakel W2-3).
+- **Smith 001 (HIGH)**: leerer `turn_id` ist keine Wildcard mehr —
+  Cross-Turn-Contamination geschlossen (exact match, beide-leer = nur
+  id-less-Surfaces).
+- **F3**: `hook_priority` ist deklarativ-only (Core v0.23 konsumiert es
+  nicht) — Manifest-Kommentare + CHANGELOG gestellt.
+- Tests: 1069 passed / 2 skipped; Falsifikations-PoC `tests/poc_orakel_f1_f2_falsification.py`.
+
+<!-- previous entries below -->
+
 ## [1.9.0] - 2026-11-10
 
 ### Hackathon-Review (NousResearch, PR #150309): reine Upstream-Plugin-Route
