@@ -25,26 +25,36 @@ from privacy_shield.config import _load_key_via_hermes, _resolve_pass_binary
 class TestHermesSecretScopeKey:
     """Key comes from agent.secret_scope.get_secret('PRIVACY_SHIELD_KEY')."""
 
-    def test_secret_scope_key_loading(self, monkeypatch):
-        import agent.secret_scope as ss
+    def _patch_secret_scope_module(self, monkeypatch, value):
+        """Inject a fake agent.secret_scope module — CI has no Hermes core."""
+        import types
 
-        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: "scoped-key")
+        agent_pkg = types.ModuleType("agent")
+        agent_pkg.__path__ = []
+        ss_mod = types.ModuleType("agent.secret_scope")
+        ss_mod.get_secret = lambda name, default=None: value
+        agent_pkg.secret_scope = ss_mod
+        monkeypatch.setitem(sys.modules, "agent", agent_pkg)
+        monkeypatch.setitem(sys.modules, "agent.secret_scope", ss_mod)
+
+    def test_secret_scope_key_loading(self, monkeypatch):
+        self._patch_secret_scope_module(monkeypatch, "scoped-key")
         assert _load_key_via_hermes() == "scoped-key"
 
     def test_secret_scope_key_missing(self, monkeypatch):
-        import agent.secret_scope as ss
-
-        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: None)
+        self._patch_secret_scope_module(monkeypatch, None)
         assert _load_key_via_hermes() is None
 
     def test_secret_scope_unavailable_returns_none(self, monkeypatch):
         """Outside Hermes (standalone CLI/tests) the import fails cleanly."""
+        monkeypatch.setitem(sys.modules, "agent", None)
         monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
         assert _load_key_via_hermes() is None
 
     def test_plugin_does_not_read_os_environ(self, monkeypatch):
         """Review demand: no bare ``os.environ[PRI...]`` read for the key."""
         monkeypatch.setenv("PRIVACY_SHIELD_KEY", "from-env")
+        monkeypatch.setitem(sys.modules, "agent", None)
         monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
         assert _load_key_via_hermes() is None  # env var must NOT be picked up
 

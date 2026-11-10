@@ -135,23 +135,37 @@ class TestConfidenceThreshold:
 class TestKeyLoading:
     """Encryption key loading through the Hermes secret scope."""
 
-    def _patch_secret_scope(self, monkeypatch, value):
-        import agent.secret_scope as ss
+    def _patch_secret_scope_module(self, monkeypatch, value):
+        """Inject a fake agent.secret_scope module (CI has no Hermes core;
+        the real module only exists inside a Hermes venv)."""
+        import sys
+        import types
 
-        monkeypatch.setattr(ss, "get_secret", lambda name, default=None: value)
+        agent_pkg = types.ModuleType("agent")
+        agent_pkg.__path__ = []
+        ss_mod = types.ModuleType("agent.secret_scope")
+        ss_mod.get_secret = lambda name, default=None: value
+        agent_pkg.secret_scope = ss_mod
+        monkeypatch.setitem(sys.modules, "agent", agent_pkg)
+        monkeypatch.setitem(sys.modules, "agent.secret_scope", ss_mod)
+
+    # Backward-compat shim for the pre-CI patch style.
+    def _patch_secret_scope(self, monkeypatch, value):
+        self._patch_secret_scope_module(monkeypatch, value)
 
     def test_secret_scope_key_loading(self, monkeypatch):
-        self._patch_secret_scope(monkeypatch, "scoped-test-key")
+        self._patch_secret_scope_module(monkeypatch, "scoped-test-key")
         assert _load_key_via_hermes() == "scoped-test-key"
 
     def test_secret_scope_key_missing(self, monkeypatch):
-        self._patch_secret_scope(monkeypatch, None)
+        self._patch_secret_scope_module(monkeypatch, None)
         assert _load_key_via_hermes() is None
 
     def test_secret_scope_unavailable_returns_none(self, monkeypatch):
         """Outside Hermes, the import must fail cleanly (None, no crash)."""
         import sys
 
+        monkeypatch.setitem(sys.modules, "agent", None)
         monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
         assert _load_key_via_hermes() is None
 

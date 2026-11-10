@@ -729,6 +729,14 @@ class InjectionShieldPlugin:
             return
         try:
             from agent.secret_scope import get_secret
+        except ImportError:
+            # CI-fix: standalone installs (plain venv, CLI, CI) have no Hermes
+            # core — resolve the plugin's OWN var from the process env. Inside
+            # Hermes, the requires_env var is resolved through the secret scope;
+            # the gateway component's TELEGRAM_BOT_TOKEN is never touched.
+            from os import environ
+
+            get_secret = environ.get
         except Exception as exc:  # noqa: BLE001 - fail-open: alerts must never break the hook
             logger.warning("injection-shield: telegram alert aborted, secret scope unavailable: %s", exc)
             return

@@ -44,6 +44,23 @@ def test_alert_enabled_via_env_sends_normally(plugin: InjectionShieldPlugin, mon
         assert mock_post.called
 
 
+def test_alert_standalone_env_fallback_without_hermes(plugin: InjectionShieldPlugin, monkeypatch) -> None:
+    """CI-fix regression: without a Hermes core (no `agent` module) the alert
+    must resolve the plugin's OWN env var instead of aborting silently."""
+    import sys
+
+    monkeypatch.delenv("INJECTION_SHIELD_ALERT_DISABLE", raising=False)
+    plugin.telegram_cfg = {"enabled": True, "chat_id": "12345", "min_severity": "medium"}
+    monkeypatch.setenv("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN", "standalone-token")
+    monkeypatch.setitem(sys.modules, "agent", None)
+    monkeypatch.setitem(sys.modules, "agent.secret_scope", None)
+    with patch("requests.post") as mock_post:
+        mock_post.return_value.status_code = 200
+        plugin._alert_telegram("🚨 test alert", [{"type": "credential_leak", "severity": "critical"}])
+        assert mock_post.called
+        assert "standalone-token" in mock_post.call_args.args[0]
+
+
 def test_audit_log_still_written_when_alert_disabled(plugin: InjectionShieldPlugin, monkeypatch) -> None:
     """ENV=1 -> post_llm_call still writes the audit entry (detection intact).
 
