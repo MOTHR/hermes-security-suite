@@ -728,7 +728,7 @@ class InjectionShieldPlugin:
             logger.warning("injection-shield: telegram alert aborted, requests unavailable: %s", exc)
             return
         try:
-            from agent.secret_scope import get_secret
+            from agent.secret_scope import get_secret  # type: ignore[import-not-found]
         except ImportError:
             # CI-fix: standalone installs (plain venv, CLI, CI) have no Hermes
             # core — resolve the plugin's OWN var from the process env. Inside

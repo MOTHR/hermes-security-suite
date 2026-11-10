@@ -622,7 +622,8 @@ class PrivacyShieldPlugin:
             not staged.get("turn_id") and not turn_id
         ):
             return None
-        return staged
+        result: dict[str, Any] | None = staged
+        return result
 
     def _sidecar_rewrite(self, content: str, staged: dict[str, Any]) -> str | None:
         """Rewrite ONLY the live-prompt portion of a sidecar-composed message.
@@ -638,7 +639,8 @@ class PrivacyShieldPlugin:
         sanitized = staged.get("sanitized", "")
         raw = staged.get("raw_prompt") or ""
         if raw and content.startswith(raw):
-            return sanitized + content[len(raw):]
+            result = sanitized + content[len(raw):]
+            return result if isinstance(result, str) else None
         # Fallback: mask the full wire content (context included). The
         # context parts are not restorable tokens-bearing text by design;
         # masking them whole is fail-safe, not fail-open.
@@ -654,7 +656,8 @@ class PrivacyShieldPlugin:
             ttl_seconds=self.config.mapping_ttl_seconds,
         )
         self._log_detections(mapping, staged.get("session_id", ""))
-        return masked
+        masked_result: str | None = masked if isinstance(masked, str) else None
+        return masked_result
 
     def apply_shield_to_request(
         self,

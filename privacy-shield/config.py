@@ -382,7 +382,8 @@ def _load_key_via_hermes() -> str | None:
         # Not running inside Hermes (e.g. standalone CLI/tests): no key.
         return None
     try:
-        return get_secret("PRIVACY_SHIELD_KEY")
+        result: str | None = get_secret("PRIVACY_SHIELD_KEY")
+        return result
     except Exception:
         # F-4 (orakel review t_c0a50b6f): get_secret raises
         # UnscopedSecretError when multiplexing is active without a bound
