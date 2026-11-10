@@ -228,6 +228,26 @@ class TestMiddlewareApplication:
         assert result is not None
         assert "max.mustermann@firma-gmbh.de" not in request["messages"][0]["content"]
 
+    def test_empty_turn_id_cannot_read_foreign_shield(self, tmp_path):
+        """Smith review t_5d7e23ce/001: an empty turn_id is NOT a wildcard —
+        a surface that loses its turn id must not read another turn's staged
+        mask (cross-turn contamination)."""
+        plugin = _make_plugin(tmp_path)
+        _run_shield(plugin, turn_id="turn-A")
+        request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
+        assert plugin.apply_shield_to_request(request, provider="anthropic", turn_id="") is None
+        assert request["messages"][2]["content"] == PII_PROMPT
+
+    def test_both_empty_turn_ids_still_match(self, tmp_path):
+        """Both ids empty (surfaces without turn ids) match — the local
+        patched core passes turn_id at both call sites, so this branch exists
+        only for id-less surfaces reading their OWN stage."""
+        plugin = _make_plugin(tmp_path)
+        plugin.pre_llm_call(PII_PROMPT, context={"session_id": "s1", "turn_id": ""})
+        request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
+        assert plugin.apply_shield_to_request(request, provider="anthropic", turn_id="") is not None
+        assert "max.mustermann@firma-gmbh.de" not in request["messages"][2]["content"]
+
     def test_turn_mismatch_does_not_apply_stale_shield(self, tmp_path):
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turnA")

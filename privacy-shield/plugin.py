@@ -612,7 +612,15 @@ class PrivacyShieldPlugin:
         staged = getattr(self, "_staged_shield", None)
         if not staged:
             return None
-        if turn_id and staged.get("turn_id") and turn_id != staged.get("turn_id"):
+        # Smith review t_5d7e23ce/001: an EMPTY turn_id must NOT act as a
+        # wildcard — otherwise a surface that loses its turn_id could read
+        # another turn's staged mask (cross-turn contamination). Match only
+        # on exact equality, or when BOTH ids are empty (surfaces that
+        # never provide turn ids — verified: both core call sites, upstream
+        # and the locally patched v0.23 core, always pass a turn_id).
+        if staged.get("turn_id") != turn_id and not (
+            not staged.get("turn_id") and not turn_id
+        ):
             return None
         return staged
 

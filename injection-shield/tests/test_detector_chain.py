@@ -180,6 +180,18 @@ def test_is_untrusted_source_predicate() -> None:
     assert not is_untrusted_source("file_read")
 
 
+def test_is_untrusted_source_mixed_script_bypasses_rejected() -> None:
+    """Smith review t_5d7e23ce/002: mixed-script homoglyph tool names must
+    fold to the untrusted set, not bypass the wrap policy."""
+    # 'wеb_еxtrаct' with cyrillic е (U+0435) and а (U+0430)
+    assert is_untrusted_source("w\u0435b_\u0435xtr\u0430ct")
+    # cyrillic с→c (U+0441) and р→p (U+0440): a mcp-prefix spelled in mixed script
+    assert is_untrusted_source("m\u0441\u0440__x")
+    # a homoglyph-folded NON-untrusted name stays non-untrusted (no false-positive drift)
+    assert not is_untrusted_source("fil\u0435_read")  # folds to "file_read" — not in the set
+    assert not is_untrusted_source("file_read")
+
+
 # ---------------------------------------------------------------------- #
 # Plugin integration — chain is built and consulted
 # ---------------------------------------------------------------------- #

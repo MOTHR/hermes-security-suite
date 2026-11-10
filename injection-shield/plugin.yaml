@@ -18,6 +18,12 @@ author: Injection-Shield Maintainers
 license: MIT
 requires_hermes: ">=0.21.5"
 # Hook execution priority: larger numbers run later.
+# NOTE (review t_c0a50b6f F-3): hook_priority is DECLARATIVE ONLY — Hermes
+# v0.23 does NOT consume it (verified: zero code references in the core);
+# dispatch order follows plugin load order (alphabetical), which currently
+# yields "injection before privacy" by name luck, not by contract. Upstream
+# ordering support is proposed together with the pre_llm_call `provider`
+# kwarg in a separate hermes-agent PR.
 # pre_llm_call must run BEFORE privacy-shield (priority 200) so the
 # prompt-injection firewall sees the original user/tool content before
 # PII pseudonymization masks it as TOKEN_<TYPE>_<hash>_<counter>.

@@ -42,11 +42,21 @@ def is_untrusted_source(source: str) -> bool:
         return False
     # DG-001 (Smith wave-2): homoglyph/zero-width/whitespace bypasses.
     # Explicit map covers cyrillic/greek lookalikes NFKD does NOT fold.
+    # Wave-2 expansion (Smith review t_5d7e23ce/002, TR39 confusables):
+    # the previous map missed latin-shaped Cyrillic/Greek letters that fold
+    # to b/h/k/m/n/t/u/v/w/j/p/s — a mixed-script "wеb_еxtrаct" bypassed
+    # the untrusted-source policy.
     _HOMOGLYPHS = {
-        0x0430: "a", 0x0435: "e", 0x043E: "o", 0x0440: "p",
-        0x0441: "c", 0x0445: "x", 0x0443: "y", 0x0456: "i",
-        0x0455: "s", 0x03BF: "o", 0x03B5: "e", 0x03B1: "a",
-        0x0451: "e",
+        # Cyrillic
+        0x0430: "a", 0x0431: "b", 0x0432: "b", 0x0435: "e", 0x043A: "k",
+        0x043C: "m", 0x043D: "h", 0x043E: "o", 0x0440: "p", 0x0441: "c",
+        0x0442: "t", 0x0443: "y", 0x0445: "x", 0x0456: "i", 0x0455: "s",
+        0x0451: "e", 0x0458: "j", 0x043F: "p", 0x044E: "y", 0x04BB: "h",
+        0x03C1: "p",  # greek rho
+        # Greek
+        0x03B1: "a", 0x03B5: "e", 0x03B9: "i", 0x03BA: "k", 0x03BC: "m",
+        0x03BF: "o", 0x03C5: "u", 0x03C4: "t", 0x03BD: "v", 0x03C0: "p",
+        0x03C7: "x", 0x03B8: "e", 0x03C3: "s", 0x03C9: "w",
     }
     _STRIP_CHARS = {0x200B, 0x200C, 0x200D, 0xFEFF, 0x00}
     _TO_UNDERSCORE = {0x20, 0x09}  # space/tab inside tool names

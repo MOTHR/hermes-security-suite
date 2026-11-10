@@ -13,6 +13,10 @@ authors = [{name = "Injection-Shield Maintainers"}]
 dependencies = [
     "pyyaml>=6.0,<7.0",
     "requests>=2.28,<3.0",
+    # Smith review t_5d7e23ce/005: requests resolves urllib3 2.7.0 which
+    # carries CVE-2026-97687/88/89 — require the patched line explicitly
+    # so a bare `pip install` cannot pull the vulnerable resolver.
+    "urllib3>=2.8.0,<3.0",
 ]
 
 [project.optional-dependencies]

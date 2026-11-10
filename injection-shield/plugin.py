@@ -726,11 +726,15 @@ class InjectionShieldPlugin:
             import requests
 
             from agent.secret_scope import get_secret
+        except Exception as exc:  # noqa: BLE001 - fail-open: alerts must never break the hook
+            logger.warning("injection-shield: telegram alert aborted, secret resolution failed: %s", exc)
+            return
 
-            token = get_secret("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN")
-            chat_id = self.telegram_cfg.get("chat_id")
-            if not token or not chat_id:
-                return
+        token = get_secret("INJECTION_SHIELD_TELEGRAM_BOT_TOKEN")
+        chat_id = self.telegram_cfg.get("chat_id")
+        if not token or not chat_id:
+            return
+        try:
             # FIX-1D (CRIT-4): the message itself is composed from
             # redacted violation records, never from raw match text.
             requests.post(
@@ -738,7 +742,7 @@ class InjectionShieldPlugin:
                 json={"chat_id": chat_id, "text": message[:3500]},
                 timeout=5,
             )
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - fail-open (Smith 003: network failures are debug noise; secret failures above are WARNING)
             logger.debug("injection-shield: telegram alert failed: %s", exc)
 
     def _enabled_guard(self) -> bool:
