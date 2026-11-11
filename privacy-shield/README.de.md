@@ -55,6 +55,16 @@ privacy-shield scan "Kontakt: alice@example.com"
 privacy-shield test --text "Hilf mir mit alice@example.com und IBAN DE89370400440532013000"
 ```
 
+### Standalone-Aufrufe (Cron / Launchd)
+
+Die 1.9.x-CLI löst den Encryption-Key nicht mehr selbst über pass/os.environ
+auf (Upstream-Plugin-Contract). Cron-/Launchd-Wrapper provisionieren den Key
+selbst: `pass show hermes/privacy-shield-key` → `export PRIVACY_SHIELD_KEY`
+vor dem CLI-Call (Muster: `~/.hermes/scripts/privacy-shield-cleanup.sh`), oder
+`PRIVACY_SHIELD_KEY_FILE` (reguläre Datei, 0600, eigener Owner). Ohne
+Provisionierung endet der Standalone-CLI mit
+`MappingTable requires a non-empty encryption_key` — by design.
+
 ## Desktop-Controls (v1.5.0+)
 
 Privacy-Shield wird mit einem offiziellen Desktop-Plugin ausgeliefert, über das Einstellungen in der Hermes Desktop-App statt via YAML editiert werden können:

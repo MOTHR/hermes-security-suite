@@ -55,6 +55,34 @@ privacy-shield scan "Contact: alice@example.com"
 privacy-shield test --text "Help with alice@example.com and IBAN DE89370400440532013000"
 ```
 
+### Standalone CLI runs (cron / launchd)
+
+Outside a Hermes runtime the plugin does not resolve the encryption key
+itself: it neither reads `PRIVACY_SHIELD_KEY` from the process environment
+nor invokes the `pass` binary (upstream plugin contract, see
+`_load_key_via_hermes` in `privacy-shield/config.py`). Standalone
+invocations (`privacy-shield setup`, `privacy-shield map ...`) must be
+provisioned by the caller:
+
+1. **Wrapper provisioning (recommended).** The wrapper resolves the key
+   through its own secret store and exports `PRIVACY_SHIELD_KEY` before
+   calling the CLI. Hermes' secret scope resolves the value from the
+   process environment when no multiplex scope is active (verified
+   2026-11-11): the plugin itself still reads neither the key from the
+   environment nor pass — the provisioning stays outside the plugin.
+   Pattern: `~/.hermes/scripts/privacy-shield-cleanup.sh` (deployed
+   wrapper; in-repo copy `privacy-shield/scripts/cron/`).
+2. **Key file.** `PRIVACY_SHIELD_KEY_FILE` points to a regular file with
+   mode 0600 owned by the current user (group/other access is refused).
+3. **Workshop mode.** `PRIVACY_SHIELD_WORKSHOP=1` generates an ephemeral
+   key with a loud warning — mapping tables become unreadable on restart.
+   Never for production runs.
+
+Without provisioning, standalone commands fail with
+`MappingTable requires a non-empty encryption_key` — by design. Inside a
+Hermes runtime a missing key never crashes initialization; the plugin
+disables itself with a warning instead.
+
 ## Desktop Controls (v1.5.0+)
 
 Privacy-Shield ships an official desktop plugin so you can tune settings in the Hermes Desktop app instead of editing YAML:

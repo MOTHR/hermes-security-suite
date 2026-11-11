@@ -1,5 +1,11 @@
 ## [Unreleased]
 
+- **Standalone-Key-Contract (Note)**: Der 1.9.x-Standalone-CLI-Key wird nicht
+  mehr im Plugin aufgelöst (pass/os.environ-Routen entfernt, Hackathon-Review
+  F1). Cron-/Launchd-Wrapper provisionieren den Key via pass-Export oder
+  `PRIVACY_SHIELD_KEY_FILE`; Muster: deployierter Cleanup-Wrapper.
+  In-Repo-Cron-Kopie nach PR-Abschluss synchronisiert.
+
 ### R-1: History-Masking (Option b — Design-Report `03-Projects/Hermes-Plugins/security-suite-hackathon150309/11-R1-History-Masking-Design.md`, Dirk-GO)
 
 - **P2 geschlossen**: `apply_shield_to_request` maskiert jetzt ALLE User-Messages
