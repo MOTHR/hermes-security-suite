@@ -9,17 +9,28 @@ cross-references the review-ID it closes.
 
 ## [Unreleased]
 
-### Smith-R2-Fixes (Peer-Review-Blocker, t_6ceb3433)
+## [0.8.2] - 2026-11-11
 
-- **`tokens` landet im Audit-Entry** (Smith Blocker-2): `_log_attempt`
-  persistiert den Token-Count (Kosten-/Anomalie-Tracking) statt ihn am
-  Plugin-Adapter zu verschlucken; `post_llm_call` forwarded ihn.
+### Round-2-Review-Fixes (teknium/Smith, PR #150309): Adapter-Wire-Contract + Audit-Vervollständigung
+
+- **Adapter lesen die echten Core-kwargs** (teknium review 2, Item 5):
+  `pre_llm_call`-/`post_llm_call`-Adapter verarbeiten `user_message`/
+  `conversation_history` bzw. `assistant_response` (String) — vorher
+  erwarteten sie `messages`/`response`-dict, die der Core nie übergibt,
+  sodass Firewall-Kontext und beide Output-Scans im Betrieb NIE liefen
+  (Unit-Tests liefen nur gegen den Plugin-Layer). Wire-Contract-Tests
+  über `register(ctx)` ergänzt.
+- **`tokens` im Audit-Entry** (Smith Blocker-2): `_log_attempt` persistiert
+  den Token-Count (Kosten-/Anomalie-Tracking); `post_llm_call` forwards.
 - **expanduser im Config-Layer** (Smith Blocker-3): `load_config()` liefert
-  `audit_log_path` absolut expandiert (`{profile}`-Substitution + expanduser)
-  — literal-`~`-Pfade können cwd-relativ nicht mehr ins unbeaufsichtigte
-  Working-Directory schreiben.
+  `audit_log_path` absolut expandiert (`{profile}`-Substitution +
+  expanduser) — literal-`~`-Pfade können cwd-relativ nicht mehr ins
+  unbeaufsichtigte Working-Directory schreiben.
+- Tests: 481 passed; mypy --strict grün.
 
-### Generator-basierte Homoglyph-Map (Orakel W2-1-Follow-up, t_cb41d625)
+## [0.8.1] - 2026-11-10
+
+### Review-Welle 1+2 + Homoglyph-Generator (Orakel/Smith/Seraph, PR #150309)
 
 - `detectors/content_tagger.py`: die handgepickte `_HOMOGLYPHS`-Map ist
   entfernt; sie kommt jetzt aus dem generierten
@@ -47,12 +58,6 @@ cross-references the review-ID it closes.
 - Smith 004 (Telegram default-enabled) wurde als lokale Profil-Config
   triagiert — kein Repo-Defekt, Manifest-Default bleibt opt-in.
 - Tests: 471 passed (inkl. Mixed-Script-Regression).
-
-- **R2-Lister-Fix (teknium review 2, item 5):** die `pre_llm_call`-/
-  `post_llm_call`-Adapter lesen jetzt die kwargs, die der Core wirklich
-  übergibt (`user_message`/`conversation_history` bzw. `assistant_response`
-  als String) — vorher liefen Firewall-Kontext und beide Scans niemals
-  (Tests liefen nur gegen die Plugin-Layer, nicht über die Adapter).
 
 ---
 

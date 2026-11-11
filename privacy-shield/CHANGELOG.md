@@ -1,20 +1,32 @@
 ## [Unreleased]
 
-### Smith-R2-Fixes (Peer-Review-Blocker, t_6ceb3433)
+## [1.9.3] - 2026-11-11
 
-- **Bounded-Dict-Miss ist jetzt fail-closed** (Smith Blocker-1): ein
-  evicteter/fehlender Staged-Entry degradiert die Middleware zu einem
-  Live-only-Standalone-Scan (mask_history=False) bzw. dem vollen Scan
-  (mask_history=True) statt raw auszuliefern — plus Eviction- und
-  Miss-Warnlog sowie Audit-Event `staged_shield_miss` (jeden Turn 1x).
-  Neue Regressionstests: Eviction × {mask_history an/aus}.
-- **expanduser im Config-Layer** (Smith Blocker-3): `load_config()`
-  liefert für `storage_path`, `*_restore_dir`, `audit_jsonl_path`,
-  `audit_log_path` expandierte absolute Pfade — ein literal-`~`-Pfad kann
-  keine CWD-relativen Artefakte mehr erzeugen (Ursache des Repo-Leak vom
-  2026-11-11). Consumers mit eigenem expanduser sind unberührt (idempotent).
-- `~`-Glob-Artifacts in .gitignore als Backstop (`.gitignore`-Muster
-  gegen literal-`~`-Verzeichnisse im Repo).
+### Round-2-Review-Fixes (teknium/Smith, PR #150309): Staged-Shield-Multiplex-Sicherheit + Konfig-Säuberung
+
+- **Staged-Shield-Dict keyed by turn_id** (teknium Item 1): bounded 64,
+  newest-wins, purge je Session-Ende — statt Single-Slot. Cross-Session-
+  Kontamination im Multiplex-Gateway geschlossen. Mehr-Session-Race- +
+  Bounded-Dict-Regressionstests.
+- **Eviction ist jetzt fail-closed** (Smith Blocker-1): ein evicteter/
+  fehlender Staged-Entry degradiert die Middleware zu einem Live-only-
+  Standalone-Scan (mask_history=False) bzw. dem vollen Scan (mask_history=
+  True) statt raw auszuliefern — plus Eviction-Warnlog und Audit-Event
+  `staged_shield_miss` (1x je Turn).
+- **SIGTERM-Handler entfernt** (teknium Item 3): aus `lifecycle.py` — ein
+  Plugin darf das prozessweite Signal-Handling von Hermes nicht ersetzen;
+  atexit + `on_session_finalize` decken den Mapper-Flush ab.
+- **Profil-Scripts entfernt** (teknium Item 4): `scripts/setup_profiles.py`,
+  `setup-profiles.sh`, `enable_all_profiles.py` samt Tests; README/README.de/
+  INSTALL.md verweisen auf `hermes -p <profile> plugins enable privacy-shield`.
+- **expanduser im Config-Layer** (Smith Blocker-3): `load_config()` liefert
+  `storage_path`, `*_restore_dir`, `audit_jsonl_path`, `audit_log_path`
+  expandiert — ein literal-`~`-Pfad kann keine CWD-relativen Artefakte mehr
+  erzeugen (Root-Cause des Repo-Leak vom 2026-11-11).
+- Desktop-Install-Texte (docs/INSTALL.md): kein „pip kopiert nach
+  desktop-plugins" mehr — Hermes installiert `desktop/` selbst.
+- Tests: 1078 passed / 2 skipped; mypy --strict grün; CI-Lint-Liste von
+  den entfernten Scripts befreit.
 
 ## [1.9.2] - 2026-11-11
 
@@ -106,19 +118,6 @@
 - **F3**: `hook_priority` ist deklarativ-only (Core v0.23 konsumiert es
   nicht) — Manifest-Kommentare + CHANGELOG gestellt.
 - Tests: 1069 passed / 2 skipped; Falsifikations-PoC `tests/poc_orakel_f1_f2_falsification.py`.
-
-- **R2-Lister-Fixes (teknium review 2, gleiches Release):**
-  - Staged-Shield-Dict **keyed by turn_id** (bounded 64, newest-wins,
-    evicted/purged je Session-Ende) statt Single-Slot — Cross-Session-
-    Kontamination im Multiplex-Gateway geschlossen.
-  - SIGTERM-Handler aus `lifecycle.py` entfernt — ein Plugin darf das
-    prozessweite Signal-Handling von Hermes nicht ersetzen (atexit + 
-    `on_session_finalize` decken den Flush ab).
-  - `scripts/setup_profiles.py`/`setup-profiles.sh`/`enable_all_profiles.py`
-    entfernt; Profile aktiviert man einzeln via
-    `hermes -p <profile> plugins enable privacy-shield`. README/README.de/
-    INSTALL.md-Stale-Texte bereinigt.
-  - Mehr-Session-Race- + Bounded-Dict-Regressionstests.
 
 <!-- previous entries below -->
 
