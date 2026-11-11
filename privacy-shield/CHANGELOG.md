@@ -1,10 +1,27 @@
 ## [Unreleased]
 
-- **Standalone-Key-Contract (Note)**: Der 1.9.x-Standalone-CLI-Key wird nicht
-  mehr im Plugin aufgelöst (pass/os.environ-Routen entfernt, Hackathon-Review
-  F1). Cron-/Launchd-Wrapper provisionieren den Key via pass-Export oder
-  `PRIVACY_SHIELD_KEY_FILE`; Muster: deployierter Cleanup-Wrapper.
-  In-Repo-Cron-Kopie nach PR-Abschluss synchronisiert.
+## [1.9.2] - 2026-11-11
+
+### Doctor-Key-Assertion: kein Silent-False-Pass mehr ohne Encryption-Key
+
+- **Regression (1.9.0–1.9.1)**: `privacy-shield doctor --quick` false-passte
+  ohne Encryption-Key als „2/2 OK, exit 0" — Stage 1 (Scan) ist ohne Key
+  lauffähig und Stage 2 gibt ein ephemeres, nicht persistiertes Testtoken auf
+  stdout aus, das die klassischen stdout-Greps füttert. Betraf u. a. einen
+  ungepatchten hermes-managed CLI-Snapshot (plugin-sources installs-venv);
+  Cron-Pfad war durch den Key-Pre-Check des Wrappers abgedeckt, ein keyloser
+  manueller CLI-Lauf nicht.
+- **Fix (Pre-Stage 0)**: `cli.py::doctor` assertiert jetzt VOR Stage 1, dass
+  `load_config().encryption_key` auflösbar ist; ohne Key → `FAIL — encryption
+  key missing`, exit **2**. Exit 1 bleibt reserviert für failed automated
+  stages (Stage 4/5 sind manuell und gate den Exit nicht).
+- **Wrapper-Vertrag** (`scripts/cron/privacy-shield-doctor.sh`, SoT
+  `~/.hermes/scripts/`): Key-Pre-Check exit **4** + Key-Provisionierung via
+  `pass` VOR dem CLI-Call; `last_doctor_ok` wird nur bei cli exit 0 gesetzt.
+  RC-Capture über `RC=0; OUTPUT=$(cmd) || RC=$?` (kein `if ! cmd` — dort ist
+  `$?` der Negations-Status).
+- Regression: keyless (`env -i`, scratch HOME) → exit 2; with-key → exit 0
+  „2/2 OK"; `tests/test_doctor.py` assertiert Verhalten, keine Snapshots.
 
 ### R-1: History-Masking (Option b — Design-Report `03-Projects/Hermes-Plugins/security-suite-hackathon150309/11-R1-History-Masking-Design.md`, Dirk-GO)
 
@@ -36,7 +53,18 @@
   Ollama-Exemption, Memo-Idempotenz pro Attempt, Turn-Reset). Drei Bestand-
   Tests, die die alte „kein Staged → Request unverändert"-Semantik kodierten,
   wurden auf die neue Semantik umgestellt (der R-1-Defekt war genau diese
-  Semantik). Version-Bump + Release erst nach Review.
+  Semantik).
+- Review: Fix-Delta `fba3d4f..191bf70` geprüft von orakel (t_eb5a2461) und
+  seraph (t_9c75defc) — beide Verdict PASS; Doctor-Fix-Review seraph
+  (t_9e7cd36b) PASS inkl. INFO „Version-Bump ausstehend" (dieser Release).
+
+### Standalone-Key-Contract (Note)
+
+- **Note**: Der 1.9.x-Standalone-CLI-Key wird nicht mehr im Plugin aufgelöst
+  (pass/os.environ-Routen entfernt, Hackathon-Review F1). Cron-/Launchd-
+  Wrapper provisionieren den Key via pass-Export oder
+  `PRIVACY_SHIELD_KEY_FILE`; Muster: deployierter Cleanup-Wrapper.
+  In-Repo-Cron-Kopie nach PR-Abschluss synchronisiert.
 
 <!-- previous entries below -->
 
