@@ -6,12 +6,37 @@ from unittest.mock import MagicMock, patch
 import pytest
 from click.testing import CliRunner
 
-from privacy_shield.cli import main, _check_smoke, _check_echt, _check_pytest
+from privacy_shield.cli import main, _check_key, _check_smoke, _check_echt, _check_pytest
 
 
 @pytest.fixture
 def runner():
     return CliRunner()
+
+
+# ── _check_key ──────────────────────────────────────────────────────────
+
+class TestCheckKey:
+    """Pre-Stage 0: Encryption-Key assertion."""
+
+    def test_key_present(self):
+        """_check_key returns True when the config resolves a key."""
+        fake_config = MagicMock()
+        fake_config.encryption_key = "s3cret"
+        with patch("privacy_shield.cli.load_config", return_value=fake_config):
+            assert _check_key() is True
+
+    def test_key_missing(self):
+        """_check_key returns False when no encryption key resolves (1.9.x: plugin disabled)."""
+        fake_config = MagicMock()
+        fake_config.encryption_key = ""
+        with patch("privacy_shield.cli.load_config", return_value=fake_config):
+            assert _check_key() is False
+
+    def test_key_load_raises(self):
+        """_check_key returns False when load_config raises."""
+        with patch("privacy_shield.cli.load_config", side_effect=OSError("config unreadable")):
+            assert _check_key() is False
 
 
 # ── _check_smoke ────────────────────────────────────────────────────────
@@ -115,7 +140,8 @@ class TestDoctorCommand:
 
     def test_doctor_quick_all_pass(self, runner):
         """doctor --quick with both stages passing."""
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=True):
             result = runner.invoke(main, ["doctor", "--quick"])
             assert result.exit_code == 0
@@ -124,16 +150,18 @@ class TestDoctorCommand:
             assert "Verdict: 2/2 OK" in result.output
 
     def test_doctor_quick_one_fail(self, runner):
-        """doctor --quick with one stage failing."""
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        """doctor --quick with one stage failing exits 1 (false-pass fix)."""
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=False):
             result = runner.invoke(main, ["doctor", "--quick"])
-            assert result.exit_code == 0
+            assert result.exit_code == 1
             assert "Verdict: 1/2 OK" in result.output
 
     def test_doctor_full_all_pass(self, runner):
         """doctor (full) with stages 1-3 passing."""
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=True), \
              patch("privacy_shield.cli._check_pytest", return_value=True):
             result = runner.invoke(main, ["doctor"])
@@ -146,18 +174,20 @@ class TestDoctorCommand:
             assert "Verdict: 3/5 OK" in result.output
 
     def test_doctor_full_pytest_fails(self, runner):
-        """doctor (full) with pytest failing."""
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        """doctor (full) with pytest failing exits 1."""
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=True), \
              patch("privacy_shield.cli._check_pytest", return_value=False):
             result = runner.invoke(main, ["doctor"])
-            assert result.exit_code == 0
+            assert result.exit_code == 1
             assert "Verdict: 2/5 OK" in result.output
 
     def test_doctor_header(self, runner):
         """doctor shows version header (FIX-PS5: dynamic __version__)."""
         from privacy_shield import __version__
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=True):
             result = runner.invoke(main, ["doctor", "--quick"])
             assert f"Privacy-Shield Doctor v{__version__}" in result.output
@@ -165,7 +195,39 @@ class TestDoctorCommand:
 
     def test_doctor_verbose_flag_accepted(self, runner):
         """doctor --verbose does not crash."""
-        with patch("privacy_shield.cli._check_smoke", return_value=True), \
+        with patch("privacy_shield.cli._check_key", return_value=True), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
              patch("privacy_shield.cli._check_echt", return_value=True):
             result = runner.invoke(main, ["doctor", "--verbose", "--quick"])
             assert result.exit_code == 0
+
+
+# ── Key-Assertion (t_86cd5f92: silent false-pass fix) ───────────────────
+
+class TestDoctorKeyAssertion:
+    """doctor must NOT exit 0 when no encryption key resolves.
+
+    Regression for 1.9.x silent false-pass: without a key the plugin is
+    disabled, Stage 1 (key-free scan) and Stage 2 (ephemeral token on stdout)
+    both passed the stdout greps, and the cron wrapper wrote last_doctor_ok.
+    """
+
+    def test_quick_without_key_exits_2(self, runner):
+        """doctor --quick with no key must NOT exit 0 (exit 2 = key missing)."""
+        with patch("privacy_shield.cli._check_key", return_value=False), \
+             patch("privacy_shield.cli._check_smoke", return_value=True), \
+             patch("privacy_shield.cli._check_echt", return_value=True):
+            result = runner.invoke(main, ["doctor", "--quick"])
+            assert result.exit_code == 2
+            assert result.exit_code != 0
+            assert "encryption key missing" in result.output
+            # The stage checks must never run on a disabled plugin.
+            assert "Stage 1" not in result.output
+            assert "Verdict: 2/2 OK" not in result.output
+
+    def test_full_without_key_exits_2(self, runner):
+        """doctor (full) without key exits 2 before any stage runs."""
+        with patch("privacy_shield.cli._check_key", return_value=False):
+            result = runner.invoke(main, ["doctor"])
+            assert result.exit_code == 2
+            assert "encryption key missing" in result.output

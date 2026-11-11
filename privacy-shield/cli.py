@@ -341,6 +341,21 @@ def _do_close_session(session_id: str) -> None:
 _PLUGIN_ROOT = Path(__file__).resolve().parent
 
 
+def _check_key() -> bool:
+    """Pre-Stage 0: Encryption-Key must resolve.
+
+    1.9.x contract: without a key the plugin is DISABLED (load_config falls
+    back to enabled=False). Stage 1 (scan) is key-free by design and Stage 2
+    still prints an ephemeral, non-persisted token on stdout, so stdout greps
+    alone constitute a silent false-pass. The key assertion is the decisive
+    check.
+    """
+    try:
+        return bool(load_config().encryption_key)
+    except Exception:
+        return False
+
+
 def _check_smoke() -> bool:
     """Stage 1: Plugin-Scan mit Test-PII."""
     try:
@@ -388,8 +403,16 @@ def doctor(verbose: bool, quick: bool) -> None:
     click.echo(f"Privacy-Shield Doctor v{__version__}")
     click.echo("==============================\n")
 
+    # Pre-Stage 0: Encryption-Key. Without it the plugin is disabled (1.9.x);
+    # the stage greps below would false-pass either way. FAIL hard instead.
+    if not _check_key():
+        click.echo(click.style("[\u2717]", fg="red") + " Pre-Stage 0: Encryption-Key (kein Key aufloesbar — Plugin disabled; PRIVACY_SHIELD_KEY env oder pass hermes/privacy-shield-key pruefen)")
+        click.echo("\nVerdict: FAIL — encryption key missing")
+        sys.exit(2)
+
     stages_passed = 0
     stages_total = 5 if not quick else 2
+    stages_failed = 0  # automated stages only; manual stages (4/5) never gate the exit
 
     # Stage 1: Smoke-Test
     if _check_smoke():
@@ -397,6 +420,7 @@ def doctor(verbose: bool, quick: bool) -> None:
         stages_passed += 1
     else:
         click.echo(click.style("[\u2717]", fg="red") + " Stage 1: Smoke-Test (Plugin laedt + scan funktioniert)")
+        stages_failed += 1
 
     # Stage 2: Echt-Test
     if _check_echt():
@@ -404,6 +428,7 @@ def doctor(verbose: bool, quick: bool) -> None:
         stages_passed += 1
     else:
         click.echo(click.style("[\u2717]", fg="red") + " Stage 2: Echt-Test (pseudonymize + map --list)")
+        stages_failed += 1
 
     if not quick:
         # Stage 3: Pytest
@@ -412,6 +437,7 @@ def doctor(verbose: bool, quick: bool) -> None:
             stages_passed += 1
         else:
             click.echo(click.style("[\u2717]", fg="red") + " Stage 3: Strukturelle Tests (Pytest-Suite)")
+            stages_failed += 1
 
         # Stage 4: Hermes-Integration (always manual)
         click.echo(click.style("[\u26a0]", fg="yellow") + " Stage 4: Hermes-Integration (manuell verifizieren — siehe Doku)")
@@ -420,6 +446,13 @@ def doctor(verbose: bool, quick: bool) -> None:
         click.echo(click.style("[?]", fg="cyan") + " Stage 5: Kunden-Selbsttest (siehe README)")
 
     click.echo(f"\nVerdict: {stages_passed}/{stages_total} OK")
+    # Exit semantics: 0 = all automated stages pass, 1 = at least one
+    # automated stage failed. A doctor that prints "N/N OK" with a failed
+    # stage while exiting 0 is a false-pass for every caller (cron wrappers,
+    # monitoring). Manual/informational stages (4/5 in full mode) never gate
+    # the exit.
+    if stages_failed:
+        sys.exit(1)
 
 
 # ── audit-export ─────────────────────────────────────────────────────────
