@@ -56,7 +56,13 @@ for pcand in ${pass_bin:+"$pass_bin"} "$HOME/.local/bin/pass" "/opt/homebrew/bin
     # augment with the known-good launchd gpg set: MacGPG2 2.2.41 matches the
     # running gpg-agent; newer /opt/homebrew gpg (2.5.24) fails against it
     resolved_key="$(PATH="$HOME/.local/bin:/usr/local/bin:/usr/local/MacGPG2/bin:$PATH" "$pcand" show hermes/privacy-shield-key 2>/dev/null || true)"
-    [ -n "$resolved_key" ] && break
+    # if/fi instead of `[ -n ] && break` — with set -euo pipefail the latter
+    # aborts with status 1 when the last candidate yields an empty key,
+    # skipping the FAIL log, the Telegram alert and exit 4 (link-devops
+    # final verdict + hermes-security scan_bd113e061300a0688c68283b finding)
+    if [ -n "$resolved_key" ]; then
+        break
+    fi
 done
 if [ -n "${PRIVACY_SHIELD_KEY:-}" ]; then
     : # key already provided by the caller
