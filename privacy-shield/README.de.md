@@ -288,12 +288,12 @@ Siehe [docs/eu-ai-act-report.md](docs/eu-ai-act-report.md) für die Mapping-Logi
 - [Reasoning-Schutz](docs/reasoning-protection.md) — v1.7.0 Pre-Intake-Redaktion (GB-009 geschlossen)
 - [Changelog](CHANGELOG.md) — Versionshistorie
 
-## Multi-Profile-Setup
+## Profil-Aktivierung
 
-Aktiviert Privacy-Shield in allen Hermes-Profilen (idempotent):
+Profile werden einzeln aktiviert — kein config.yaml-Umschreiben:
 
 ```bash
-python3 scripts/setup_profiles.py
+hermes -p <profil> plugins enable privacy-shield
 ```
 
 ## Version-Sync

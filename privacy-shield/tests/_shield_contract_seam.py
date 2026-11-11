@@ -22,7 +22,12 @@ def staged_result(plugin, result):
     """
     if result is not None:
         return result
-    staged = getattr(plugin, "_staged_shield", None)
-    if staged is None:
+    shields = getattr(plugin, "_staged_shields", {})
+    if not shields:
         return None
-    return {"user_message": staged["sanitized"]}
+    # Legacy callers stage exactly one turn; the newest entry is theirs.
+    staged = next(reversed(shields))
+    entry = shields[staged]
+    if entry is None:
+        return None
+    return {"user_message": entry["sanitized"]}

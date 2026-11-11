@@ -91,6 +91,19 @@
   nicht) — Manifest-Kommentare + CHANGELOG gestellt.
 - Tests: 1069 passed / 2 skipped; Falsifikations-PoC `tests/poc_orakel_f1_f2_falsification.py`.
 
+- **R2-Lister-Fixes (teknium review 2, gleiches Release):**
+  - Staged-Shield-Dict **keyed by turn_id** (bounded 64, newest-wins,
+    evicted/purged je Session-Ende) statt Single-Slot — Cross-Session-
+    Kontamination im Multiplex-Gateway geschlossen.
+  - SIGTERM-Handler aus `lifecycle.py` entfernt — ein Plugin darf das
+    prozessweite Signal-Handling von Hermes nicht ersetzen (atexit + 
+    `on_session_finalize` decken den Flush ab).
+  - `scripts/setup_profiles.py`/`setup-profiles.sh`/`enable_all_profiles.py`
+    entfernt; Profile aktiviert man einzeln via
+    `hermes -p <profile> plugins enable privacy-shield`. README/README.de/
+    INSTALL.md-Stale-Texte bereinigt.
+  - Mehr-Session-Race- + Bounded-Dict-Regressionstests.
+
 <!-- previous entries below -->
 
 ## [1.9.0] - 2026-11-10

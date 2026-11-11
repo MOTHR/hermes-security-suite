@@ -1,8 +1,13 @@
-"""Tests for graceful shutdown hooks (LINK-PS-6)."""
+"""Tests for graceful shutdown hooks (LINK-PS-6).
+
+teknium review 2 (item 3): the plugin no longer installs a SIGTERM handler —
+a plugin must NOT replace Hermes's process-wide signal handling. Only the
+atexit flush hook remains; ``on_session_finalize`` covers session boundaries.
+"""
 
 from __future__ import annotations
 
-import signal
+import atexit
 from unittest.mock import MagicMock
 
 import pytest
@@ -21,21 +26,15 @@ def memory_config():
     )
 
 
-def test_atexit_and_sigterm_registered(monkeypatch, memory_config):
+def test_atexit_flush_registered(monkeypatch, memory_config):
     registered = []
-    signals = []
 
     def fake_atexit_register(func, *args, **kwargs):
         registered.append((func, args, kwargs))
 
-    def fake_signal(sig, handler):
-        signals.append((sig, handler))
-
     monkeypatch.setattr(
         "privacy_shield.lifecycle.atexit.register", fake_atexit_register
     )
-    monkeypatch.setattr("privacy_shield.lifecycle.signal.signal", fake_signal)
-    monkeypatch.setattr("privacy_shield.lifecycle.signal.SIGTERM", signal.SIGTERM)
 
     plugin = PrivacyShieldPlugin(config=memory_config)
 
@@ -45,8 +44,21 @@ def test_atexit_and_sigterm_registered(monkeypatch, memory_config):
     assert args[0] is plugin.mapper
     assert args[1] == id(plugin)
 
-    assert len(signals) == 1
-    assert signals[0][0] == signal.SIGTERM
+
+def test_no_sigterm_handler_installed(monkeypatch, memory_config):
+    """teknium review 2 item 3: plugin load must not replace process-wide
+    signal handling — signal.signal must never be called by the plugin."""
+    calls = []
+
+    def fake_signal(sig, handler):
+        calls.append((sig, handler))
+
+    monkeypatch.setattr("signal.signal", fake_signal)
+
+    PrivacyShieldPlugin(config=memory_config)
+    assert calls == [], (
+        "plugin load must not install any SIGTERM/signal handler"
+    )
 
 
 def test_shutdown_is_idempotent(memory_config):
@@ -61,14 +73,6 @@ def test_shutdown_is_idempotent(memory_config):
     mapper.close.assert_called_once()
 
 
-def test_register_shutdown_hooks_swallows_windows_signal_errors(
-    monkeypatch, memory_config
-):
-    def failing_signal(sig, handler):
-        raise AttributeError("SIGTERM not available")
-
-    monkeypatch.setattr("privacy_shield.lifecycle.signal.signal", failing_signal)
-
-    # Should not raise even when SIGTERM registration fails.
-    mapper = MagicMock()
-    register_shutdown_hooks(mapper, 12345)
+def test_register_shutdown_hooks_never_touches_signals(memory_config):
+    register_shutdown_hooks(MagicMock(), 12345)
+    # No exception path left for Windows/restricted envs: atexit-only.

@@ -38,6 +38,12 @@ cross-references the review-ID it closes.
   triagiert — kein Repo-Defekt, Manifest-Default bleibt opt-in.
 - Tests: 471 passed (inkl. Mixed-Script-Regression).
 
+- **R2-Lister-Fix (teknium review 2, item 5):** die `pre_llm_call`-/
+  `post_llm_call`-Adapter lesen jetzt die kwargs, die der Core wirklich
+  übergibt (`user_message`/`conversation_history` bzw. `assistant_response`
+  als String) — vorher liefen Firewall-Kontext und beide Scans niemals
+  (Tests liefen nur gegen die Plugin-Layer, nicht über die Adapter).
+
 ---
 
 ## [0.8.0] — 2026-11-10 (Hackathon-Review, NousResearch PR #150309): pure upstream hook contracts

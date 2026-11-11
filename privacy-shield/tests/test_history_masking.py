@@ -57,7 +57,7 @@ def _stage(plugin, prompt, *, turn_id="turn1", session_id="s1"):
             "platform": "",
         },
     )
-    return plugin._staged_shield
+    return plugin._staged_shields.get(turn_id or "")
 
 
 def _apply(plugin, request, *, turn_id="turn1", session_id="s1", provider="openai"):

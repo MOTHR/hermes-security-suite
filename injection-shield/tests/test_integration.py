@@ -54,9 +54,9 @@ def test_registers_all_hooks(ctx: MockCtx) -> None:
 def test_full_flow(ctx: MockCtx, plugin: InjectionShieldPlugin) -> None:
     register(ctx)
 
-    # Step 1: firewall as user-message context (v0.8.0 upstream contract)
-    messages = [{"role": "user", "content": "Hello"}]
-    result = _run_hook(ctx, "pre_llm_call", messages=messages, model="gpt-4")
+    # Step 1: firewall as user-message context — VIA UPSTREAM KWARGS
+    # (teknium review 2 item 5: the core passes user_message, not messages)
+    result = _run_hook(ctx, "pre_llm_call", user_message="Hello", model="gpt-4", session_id="sess-full-flow")
     assert result is not None
     assert "PROMPT INJECTION FIREWALL" in result["context"]
 
@@ -72,6 +72,15 @@ def test_full_flow(ctx: MockCtx, plugin: InjectionShieldPlugin) -> None:
     )
     assert result is not None
     assert "BLOCKED" in result
+
+    # Step 3b: post_llm_call AUDIT via the adapter's upstream kwargs
+    # (assistant_response is a plain string; teknium review 2 item 5)
+    result = _run_hook(
+        ctx, "post_llm_call",
+        assistant_response="Here is the key: sk-abcDef123Ghi456Jkl7890",
+        session_id="sess-full-flow",
+    )
+    assert result is None  # observer
 
     # Step 4: audit log written
     assert plugin.audit_log.exists()

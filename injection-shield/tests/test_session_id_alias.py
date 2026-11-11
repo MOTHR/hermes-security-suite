@@ -132,21 +132,21 @@ def test_session_id_accepted_on_pre_and_post_llm_call() -> None:
     real_register(ctx)
 
     # The point is that neither call raises on the unknown kwarg.
+    # teknium review 2 item 5: the core passes user_message /
+    # assistant_response — the adapter reads the upstream kwargs now.
     result_pre = _invoke(
         ctx.hooks["pre_llm_call"],
-        messages=[{"role": "user", "content": "hi"}],
+        user_message="hi",
         model="test-model",
         session_id="abc",
     )
     result_post = _invoke(
         ctx.hooks["post_llm_call"],
-        response={"content": "hi"},
-        tokens=2,
+        assistant_response="hi",
         session_id="abc",
     )
-    # pre_llm_call returns a decision dict (potentially with the
-    # firewall system message prepended); post_llm_call returns
-    # None on success. The contract is: no TypeError, no crash.
+    # pre_llm_call returns the firewall context injection; post_llm_call
+    # returns None on success. The contract is: no TypeError, no crash.
     assert isinstance(result_pre, dict)
     assert result_post is None
 

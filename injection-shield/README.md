@@ -44,9 +44,9 @@ in der Hermes-Desktop-App ändern kannst, statt YAML zu bearbeiten:
 - Audit-Log-Rotation und -Aufbewahrung anpassen
 - Synthetischen Injection-Detektor-Smoke-Test ausführen
 
-Das Desktop-Plugin ist in `desktop/` gebündelt und wird automatisch nach
-`~/.hermes/desktop-plugins/injection-shield-controls/` kopiert, wenn das Paket
-installiert wird (`pip install` oder `pip install -e .`). Das Backend lebt in
+Das Desktop-Plugin ist in `desktop/` gebündelt und wird vom Hermes-Plugin-System
+selbst installiert (`hermes plugins install` / `hermes plugins enable`) — **kein
+Kopieren nach `~/.hermes/desktop-plugins/`**. Das Backend lebt in
 `dashboard/plugin_api.py` und wird vom Hermes-Dashboard-Plugin-System unter
 `/api/plugins/injection-shield/` gemountet.
 
@@ -211,9 +211,9 @@ the Hermes Desktop app instead of editing YAML:
 - Adjust audit log rotation and retention
 - Run a synthetic injection-detector smoke test
 
-The desktop plugin is bundled in `desktop/` and automatically copied to
-`~/.hermes/desktop-plugins/injection-shield-controls/` when the package is
-installed (`pip install` or `pip install -e .`). The backend lives in
+The desktop plugin is bundled in `desktop/` and installed by the Hermes plugin
+system itself (`hermes plugins install` / `hermes plugins enable`) — **no
+copying to `~/.hermes/desktop-plugins/` happens or is needed.** The backend lives in
 `dashboard/plugin_api.py` and is mounted by the Hermes dashboard plugin system
 at `/api/plugins/injection-shield/`.
 

@@ -111,37 +111,46 @@ def register(ctx: Any) -> None:
 
     def on_pre_llm_call(
         *,
-        messages: list[dict[str, Any]] | None = None,
+        user_message: str = "",
+        conversation_history: list[dict[str, Any]] | None = None,
         model: str = "",
         session_key: str = "",
         session_id: str = "",
         **kwargs: Any,
     ) -> dict[str, Any] | None:
-        # pre_llm_call does not currently propagate session_key to the
-        # plugin method (the message itself carries the conversation
-        # context), but the alias is accepted at the adapter so the
-        # Hermes-Core call sites that pass ``session_id`` do not break.
+        """pre_llm_call — upstream kwargs (agent/turn_context.py): user_message +
+        conversation_history, NOT ``messages`` (teknium review 2, item 5).
+        Build the scan list from what the core actually passes so the
+        zero-width / multimodal scans see the traffic."""
         _ = (session_key, session_id)
+        messages: list[dict[str, Any]] = list(conversation_history or [])
+        if user_message:
+            messages.append({"role": "user", "content": user_message})
+        if not messages:
+            return None
         return plugin.pre_llm_call(
-            messages=messages or [],
+            messages=messages,
             model=model,
+            session_key=session_id,
         )
 
     def on_post_llm_call(
         *,
-        response: dict[str, Any] | None = None,
+        assistant_response: str = "",
         tokens: int = 0,
         session_key: str = "",
         session_id: str = "",
         **kwargs: Any,
     ) -> dict[str, Any] | None:
-        # post_llm_call does not currently take session_key in the
-        # plugin class (audit-log path only), but the alias is accepted
-        # at the adapter for cross-plugin parity.
+        """post_llm_call — upstream kwargs (agent/turn_finalizer.py):
+        ``assistant_response`` as a plain string, NOT a ``response`` dict
+        (teknium review 2, item 5). Wrap it so the credential/pattern scans
+        run."""
         _ = (session_key, session_id)
         return plugin.post_llm_call(
-            response=response or {},
+            response={"text": assistant_response or ""},
             tokens=tokens,
+            session_key=session_id,
         )
 
     def on_transform_tool_result(

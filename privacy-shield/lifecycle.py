@@ -18,7 +18,6 @@ import atexit
 import json
 import logging
 import os
-import signal
 import sys
 from typing import Any
 
@@ -26,7 +25,7 @@ _logger = logging.getLogger(__name__)
 
 
 # Tracks which plugin instances have already run their shutdown hook
-# so duplicate atexit / SIGTERM invocations are idempotent.
+# so duplicate atexit invocations are idempotent.
 _shutdown_done: set[int] = set()
 
 
@@ -46,29 +45,14 @@ def _shutdown_mapper(mapper: Any, instance_id: int) -> None:
         _logger.exception("Privacy-Shield: mapper shutdown failed")
 
 
-def _sigterm_handler(mapper: Any, instance_id: int) -> Any:
-    """Return a SIGTERM handler that closes the mapper gracefully."""
-
-    def handler(signum: int, frame: Any | None) -> None:
-        _shutdown_mapper(mapper, instance_id)
-        # Re-raise the default termination so the process exits cleanly.
-        signal.default_int_handler(signum, frame)
-
-    return handler
-
-
 def register_shutdown_hooks(mapper: Any, instance_id: int) -> None:
-    """Register atexit + SIGTERM hooks for a plugin instance.
+    """Register the atexit flush hook for a plugin instance.
 
-    ``signal`` is not available on Windows in all contexts, so the SIGTERM
-    registration is wrapped in a broad try/except ImportError/AttributeError.
+    teknium review 2 (item 3): no SIGTERM handler is installed — a plugin
+    must NOT replace Hermes's process-wide signal handling. The atexit hook
+    plus ``on_session_finalize`` already cover the mapper flush.
     """
     atexit.register(_shutdown_mapper, mapper, instance_id)
-    try:
-        signal.signal(signal.SIGTERM, _sigterm_handler(mapper, instance_id))
-    except (ImportError, AttributeError, ValueError, OSError):  # pragma: no cover
-        # Windows without SIGTERM, or restricted environments.
-        pass
 
 
 # ── Structured JSON logging (LINK-PS-8) ─────────────────────────────────────
@@ -105,14 +89,14 @@ def maybe_enable_json_logging() -> None:
             existing.setFormatter(formatter)
 
 
-# ── Backward-compat re-exports for test_graceful_shutdown.py ─────────────
+# ── Backward-compat re-exports for test_graceful_shutdown.py ────────────────
 # The test suite predates the lifecycle.py extraction and still imports
 # the original private names.  Re-export them at the module level so
-# the test file keeps working without modification.
+# the test file keeps working without modification. (_sigterm_handler was
+# removed per teknium review 2, item 3.
 _register_shutdown_hooks = register_shutdown_hooks
 _maybe_enable_json_logging = maybe_enable_json_logging
 _shutdown_mapper = _shutdown_mapper  # noqa: PLW0127
-_sigterm_handler = _sigterm_handler  # noqa: PLW0127
 
 
 __all__ = [

@@ -156,10 +156,9 @@ Commands:
 ## 3. Desktop-Controls
 
 Seit v1.5.0 wird Privacy-Shield zusammen mit einem offiziellen Desktop-Plugin
-ausgeliefert. Beim Installieren des Pakets (`pip install` oder `pip install -e .`)
-wird `desktop/` automatisch nach
-`~/.hermes/desktop-plugins/privacy-shield-controls/` kopiert — es ist **nichts
-manuell zu kopieren**.
+ausgeliefert. Hermes installiert `desktop/` selbst (`hermes plugins install` /
+`hermes plugins enable`) — es wird **kein Kopieren nach
+`~/.hermes/desktop-plugins/privacy-shield-controls/` mehr vorgenommen.**
 
 Im Hermes Desktop app erscheint daraufhin ein **Privacy-Shield**-Pane, über das
 folgende Einstellungen editiert werden können:
@@ -589,10 +588,9 @@ Commands:
 ## 3. Desktop-Controls
 
 Since v1.5.0, Privacy-Shield ships together with an official desktop plugin.
-When installing the package (`pip install` or `pip install -e .`), `desktop/`
-is automatically copied to
-`~/.hermes/desktop-plugins/privacy-shield-controls/` — **nothing
-needs to be manually copied**.
+Hermes installs `desktop/` itself (`hermes plugins install` / `hermes plugins
+enable`) — **nothing is copied to
+`~/.hermes/desktop-plugins/privacy-shield-controls/`.**
 
 The Hermes Desktop app then shows a **Privacy-Shield** pane where
 the following settings can be edited:

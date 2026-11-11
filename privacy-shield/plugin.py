@@ -89,7 +89,7 @@ class PrivacyShieldPlugin:
         self._provider_warned: set[str] = set()
         # llm_request middleware staging slot: sanitized prompt produced by the
         # last pre_llm_call, consumed by the next outgoing request (one slot).
-        self._staged_shield: dict[str, Any] | None = None
+        self._staged_shields: dict[str, dict[str, Any]] = {}
         self._pdf_preprocessor = self._init_attachment_preprocessor("pdf")
         self._image_preprocessor = self._init_attachment_preprocessor("image")
         self._email_preprocessor = self._init_attachment_preprocessor("email")
@@ -587,43 +587,51 @@ class PrivacyShieldPlugin:
 
     # ── llm_request middleware application ────────────────────────────────
 
+    _STAGED_MAX = 64  # bounded per teknium review 2: one gateway process serves many sessions
+
     def _stage_shield(self, *, turn_id: str, payload: dict[str, Any]) -> None:
         """Store the sanitized prompt for :meth:`apply_shield_to_request`.
 
-        Single slot per turn: the newest pre_llm_call result wins. A slot
-        keyed by an empty turn_id (provider did not pass one) still matches
-        the middleware's turn_id via :meth:`_read_staged_shield`. The slot is
-        deliberately NOT consumed by the middleware: the core rebuilds the
-        request payload per api attempt (tool loop retries) from the raw
-        messages, so every attempt must re-apply the mask. Slot lifetimes are
-        bounded by the next pre_llm_call and dropped in :meth:`on_session_end`.
+        Keyed BY TURN ID in a bounded dict (teknium review 2, item 1): one
+        gateway process serves many sessions/turns concurrently, so a
+        single slot let session B's ``pre_llm_call`` overwrite session A's
+        staged mask between A's staging and A's api calls — A would ship
+        raw personal data. Each live turn owns its dict entry; the
+        middleware reads the exact ``turn_id`` entry. The dict is bounded:
+        the oldest entry is dropped beyond ``_STAGED_MAX``. Middleware
+        never consumes an entry (the core rebuilds the request payload per
+        api attempt from the raw messages); entries live until evicted or
+        purged by session end (:meth:`on_session_end`).
         """
+        key = turn_id or ""
         entry = dict(payload)
-        entry["turn_id"] = turn_id or ""
-        self._staged_shield = entry
+        entry["turn_id"] = key
+        shields = getattr(self, "_staged_shields", None)
+        if not isinstance(shields, dict):
+            shields = {}
+            self._staged_shields = shields
+        while key in shields and shields[key] is not entry:
+            # same key re-staged within the turn: newest wins (drop old copy)
+            del shields[key]
+        shields[key] = entry
+        while len(shields) > self._STAGED_MAX:
+            oldest = next(iter(shields))
+            shields.pop(oldest, None)
 
     def _read_staged_shield(self, turn_id: str) -> dict[str, Any] | None:
-        """Return the staged shield when the turn matches (or either id unset).
+        """Return THIS turn's staged shield (exact turn-id key, read-only).
 
         Read-only on purpose: the core fires the llm_request middleware once
         PER API ATTEMPT (conversation_loop retry/tool loop); consuming the
-        slot on the first attempt would send raw PII from attempt 2 on
-        (orakel review t_c0a50b6f F-1, PoC-reproduced).
+        entry on the first attempt would send raw PII from attempt 2 on
+        (orakel review t_c0a50b6f F-1, PoC-reproduced). Keying by turn id
+        (and matching exactly — Smith review t_5d7e23ce/001) keeps concurrent
+        sessions isolated: no wildcard, no single-slot overwrite.
         """
-        staged = getattr(self, "_staged_shield", None)
-        if not staged:
+        shields = getattr(self, "_staged_shields", None)
+        if not isinstance(shields, dict):
             return None
-        # Smith review t_5d7e23ce/001: an EMPTY turn_id must NOT act as a
-        # wildcard — otherwise a surface that loses its turn_id could read
-        # another turn's staged mask (cross-turn contamination). Match only
-        # on exact equality, or when BOTH ids are empty (surfaces that
-        # never provide turn ids — verified: both core call sites, upstream
-        # and the locally patched v0.23 core, always pass a turn_id).
-        if staged.get("turn_id") != turn_id and not (
-            not staged.get("turn_id") and not turn_id
-        ):
-            return None
-        result: dict[str, Any] | None = staged
+        result: dict[str, Any] | None = shields.get(turn_id or "")
         return result
 
     def _sidecar_rewrite(self, content: str, staged: dict[str, Any]) -> str | None:
@@ -1293,7 +1301,7 @@ class PrivacyShieldPlugin:
         token-cache entries so the same session cannot be resumed.
         """
         if not session_id:
-            self._staged_shield = None
+            self._staged_shields = {}
             return
         purge = getattr(self.mapper, "purge_session", None)
         deleted = (
@@ -1310,7 +1318,7 @@ class PrivacyShieldPlugin:
         # Drop the middleware staging slot too: it holds the raw PII prompt
         # in memory and must never outlive the session
         # (orakel review t_c0a50b6f F-1 lifetime note).
-        self._staged_shield = None
+        self._staged_shields = {}
         logger.info(
             "Privacy-Shield: session %s ended, removed %d mappings", session_id, deleted
         )

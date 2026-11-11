@@ -63,7 +63,7 @@ def _run_shield(plugin, *, turn_id="turn1", provider=""):
             "platform": "",
         },
     )
-    return result, plugin._staged_shield
+    return result, plugin._staged_shields.get(turn_id or "")
 
 
 class TestShieldContract:
@@ -84,7 +84,7 @@ class TestShieldContract:
         plugin = _make_plugin(tmp_path)
         r = plugin.pre_llm_call("hallo, wie geht es dir?", context={})
         assert r is None
-        assert plugin._staged_shield is None
+        assert not plugin._staged_shields.get("")
 
     def test_disabled_returns_none(self, tmp_path):
         plugin = _make_plugin(tmp_path, enabled=False)
@@ -100,7 +100,7 @@ class TestShieldContract:
         assert r is not None and r.get("action") == "block"
         assert "Privacy-Shield" in r["message"]
         # a veto must not stage a mask
-        assert plugin._staged_shield is None
+        assert not plugin._staged_shields.get("")
 
     def test_strict_unknown_provider_defers_to_mask(self, tmp_path):
         """Upstream pre_llm_call provides no provider → no veto, mask instead."""
@@ -117,7 +117,7 @@ class TestShieldContract:
         # no provider in ctx at all (upstream shape)
         r = plugin.pre_llm_call(PII_PROMPT, context={"session_id": "s1"})
         assert r is not None and r.get("action") == "block"
-        assert plugin._staged_shield is None
+        assert not plugin._staged_shields.get("")
 
 
 class TestMiddlewareApplication:
@@ -210,7 +210,7 @@ class TestMiddlewareApplication:
         plugin = _make_plugin(tmp_path)
         plugin.config.mask_sidecar_suffix = False
         _run_shield(plugin, turn_id="turnX")  # stages sanitized for the raw PII prompt
-        stage = plugin._staged_shield
+        stage = plugin._staged_shields.get("turnX")
         context_suffix = "\n\nPROMPT INJECTION FIREWALL (injected context)"
         wire = stage["raw_prompt"] + context_suffix
         request = {"messages": [{"role": "user", "content": wire}]}
@@ -246,7 +246,7 @@ class TestMiddlewareApplication:
         foreign turn's staged mask."""
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turn-A")
-        foreign_mask = plugin._staged_shield["sanitized"]
+        foreign_mask = plugin._staged_shields["turn-A"]["sanitized"]
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
         result = plugin.apply_shield_to_request(request, provider="anthropic", turn_id="")
         assert result is not None, "standalone scan must still mask"
@@ -266,13 +266,59 @@ class TestMiddlewareApplication:
         assert plugin.apply_shield_to_request(request, provider="anthropic", turn_id="") is not None
         assert "max.mustermann@firma-gmbh.de" not in request["messages"][2]["content"]
 
+    def test_concurrent_sessions_isolated(self, tmp_path):
+        """teknium review 2 item 1: one gateway serves many sessions —
+        session B's pre_llm_call between session A's staging and A's api
+        calls must NOT overwrite A's staged mask (raw PII would ship)."""
+        plugin = _make_plugin(tmp_path)
+        plugin.pre_llm_call(
+            "Mail an max.mustermann@firma-gmbh.de, Session A",
+            context={"session_id": "sess-A", "turn_id": "turn-A"},
+        )
+        # Session B stages between A's staging and A's middleware call
+        plugin.pre_llm_call(
+            "Mail an berta.beispiel@andere-domain.de, Session B",
+            context={"session_id": "sess-B", "turn_id": "turn-B"},
+        )
+        request_a = {"messages": [{"role": "user", "content":
+            "Mail an max.mustermann@firma-gmbh.de, Session A"}]}
+        result_a = plugin.apply_shield_to_request(
+            request_a, provider="anthropic", session_id="sess-A", turn_id="turn-A"
+        )
+        assert result_a is not None, "A's staged mask must still apply after B staged"
+        content_a = request_a["messages"][0]["content"]
+        assert "max.mustermann@firma-gmbh.de" not in content_a
+        assert "berta.beispiel@andere-domain.de" not in content_a, (
+            "B's mask must not leak into A's request"
+        )
+        assert "TOKEN_EMAIL_" in content_a
+        # and B still gets B's own mask afterwards
+        request_b = {"messages": [{"role": "user", "content":
+            "Mail an berta.beispiel@andere-domain.de, Session B"}]}
+        assert plugin.apply_shield_to_request(
+            request_b, provider="anthropic", session_id="sess-B", turn_id="turn-B"
+        ) is not None
+        assert "berta.beispiel@andere-domain.de" not in request_b["messages"][0]["content"]
+
+    def test_staged_dict_is_bounded(self, tmp_path):
+        """teknium review 2 item 1: the staged dict must be bounded (no
+        unbounded growth on a long-lived gateway)."""
+        plugin = _make_plugin(tmp_path)
+        for i in range(80):
+            plugin._stage_shield(
+                turn_id=f"turn-{i}",
+                payload={"sanitized": f"s{i}", "raw_prompt": f"r{i}"},
+            )
+        assert len(plugin._staged_shields) <= plugin._STAGED_MAX
+        assert "turn-0" not in plugin._staged_shields, "oldest entries evicted"
+
     def test_turn_mismatch_does_not_apply_stale_shield(self, tmp_path):
         """A stale staged shield must not be applied to a foreign turn.
         R-1 Option b: instead of leaking raw PII, the middleware masks via
         its own standalone scan (different session than the staged one)."""
         plugin = _make_plugin(tmp_path)
         _run_shield(plugin, turn_id="turnA")
-        stale_mask = plugin._staged_shield["sanitized"]
+        stale_mask = plugin._staged_shields["turnA"]["sanitized"]
         request = {**REQUEST, "messages": [dict(m) for m in REQUEST["messages"]]}
         assert plugin.apply_shield_to_request(
             request, provider="anthropic", turn_id="turnB"
@@ -357,7 +403,7 @@ class TestHookWiring:
             session_id="s1", model="m", platform="", is_first_turn=True,
         )
         assert redacted is None  # the mask path stages instead of returning
-        staged = plugin._staged_shield
+        staged = plugin._staged_shields.get("")
         assert staged is not None
         tokenized = staged["sanitized"]
         token_match = TOKEN_RE.search(tokenized)
