@@ -81,6 +81,13 @@ version = {attr = "privacy_shield.__version__"}
 privacy_shield = ["plugin.yaml", "config/audit_articles.yaml"]
 "privacy_shield.audit" = []
 
+# Explicit isort first-party mapping: implicit project-name detection is
+# platform-dependent in ruff 0.16.4 (macOS classifies `privacy_shield` as
+# first-party, Linux does not — CI lint job failed on a file that passes
+# locally). Pinning it here makes import grouping identical everywhere.
+[tool.ruff.lint.isort]
+known-first-party = ["privacy_shield"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
