@@ -19,9 +19,8 @@ from typing import Any
 
 import yaml
 
-from ..config import PrivacyShieldConfig, load_config
+from ..config import PrivacyShieldConfig
 from ..mapping_table import InMemoryMappingTable, MappingTable
-
 from .report_data import (
     AuditEvent,
     ComplianceArticle,
@@ -383,7 +382,13 @@ def load_article_mapping(config_path: Path | None = None) -> list[ComplianceArti
     ``eu_ai_act_articles`` / ``dsgvo_articles`` sections.
     """
     if config_path is None:
-        config_path = Path(__file__).with_name("config") / "audit_articles.yaml"
+        # pkg-root ``config/`` (matches pdf_renderer.py:143): the audit
+        # articles file lives at ``privacy_shield/config/``, NOT in
+        # ``audit/config`` — ``with_name("config")`` produced a default
+        # path that never exists (silent in-memory fallback only).
+        config_path = (
+            Path(__file__).resolve().parent.parent / "config" / "audit_articles.yaml"
+        )
 
     default = _default_eu_ai_act_articles() + _default_dsgvo_articles()
     if not config_path.exists():

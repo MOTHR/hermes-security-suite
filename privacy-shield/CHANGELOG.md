@@ -25,6 +25,10 @@
   erzeugen (Root-Cause des Repo-Leak vom 2026-11-11).
 - Desktop-Install-Texte (docs/INSTALL.md): kein „pip kopiert nach
   desktop-plugins" mehr — Hermes installiert `desktop/` selbst.
+- **Packaging** (link-devops-Findings t_a6a88c66): `config/audit_articles.yaml`
+  landet jetzt im Wheel/SDist (package-data); `audit/collector.py` nutzt den
+  pkg-root-`config/`-Default statt des nie existierenden `audit/config`-
+  Pfads (kein stiller Fallback mehr); .gitignore: `dist/`/`build/`.
 - Tests: 1078 passed / 2 skipped; mypy --strict grün; CI-Lint-Liste von
   den entfernten Scripts befreit.
 

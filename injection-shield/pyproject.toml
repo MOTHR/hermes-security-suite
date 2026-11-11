@@ -41,15 +41,18 @@ packages = [
     "injection_shield",
     "injection_shield.detectors",
     "injection_shield.mcp",
+    "injection_shield.dashboard",
 ]
 
 [tool.setuptools.package-dir]
 "injection_shield" = "."
 "injection_shield.detectors" = "detectors"
 "injection_shield.mcp" = "mcp"
+"injection_shield.dashboard" = "dashboard"
 
 [tool.setuptools.package-data]
 injection_shield = ["plugin.yaml"]
+"injection_shield.dashboard" = ["manifest.json"]
 
 # single-source-of-truth for the version. ``__init__.py`` is the canonical
 # source; setuptools reads ``injection_shield.__version__`` at build time.

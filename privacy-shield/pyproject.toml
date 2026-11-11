@@ -78,7 +78,7 @@ version = {attr = "privacy_shield.__version__"}
 "privacy_shield.preprocessors" = "preprocessors"
 
 [tool.setuptools.package-data]
-privacy_shield = ["plugin.yaml"]
+privacy_shield = ["plugin.yaml", "config/audit_articles.yaml"]
 "privacy_shield.audit" = []
 
 [tool.pytest.ini_options]

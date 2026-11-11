@@ -6,3 +6,6 @@ injection_shield
 # expanduser bug artifacts (literal-~ relative dir written by unexpanded audit path)
 ~/.hermes/
 privacy-shield/~/.hermes/
+
+dist/
+build/

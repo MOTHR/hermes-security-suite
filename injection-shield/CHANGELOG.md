@@ -26,6 +26,11 @@ cross-references the review-ID it closes.
   `audit_log_path` absolut expandiert (`{profile}`-Substitution +
   expanduser) — literal-`~`-Pfade können cwd-relativ nicht mehr ins
   unbeaufsichtigte Working-Directory schreiben.
+- **Packaging** (link-devops-Findings t_a6a88c66): `dashboard/` (plugin_api
+  + manifest) ist als `injection_shield.dashboard`-Subpackage gepackt und
+  kommt damit ins Wheel; `sync_version.py` synct jetzt auch
+  `plugin.de.yaml` + `dashboard/manifest.json` (beide waren auf 0.7.1
+  zurückgeblieben); Version-Override-Dateien gebumpt auf 0.8.2.
 - Tests: 481 passed; mypy --strict grün.
 
 ## [0.8.1] - 2026-11-10

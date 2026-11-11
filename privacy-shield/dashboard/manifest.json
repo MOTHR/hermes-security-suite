@@ -3,7 +3,7 @@
   "label": "Privacy-Shield",
   "description": "PII pseudonymization/restore for Hermes. Backend config API for the Privacy-Shield Controls desktop pane (mode: off/audit/restore, restore channels, thresholds).",
   "icon": "Shield",
-  "version": "1.8.0",
+  "version": "1.9.3",
   "tab": {
     "hidden": true
   },
