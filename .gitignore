@@ -2,3 +2,7 @@
 # Local test symlinks (underscore package-name alias for pytest imports)
 privacy_shield
 injection_shield
+
+# expanduser bug artifacts (literal-~ relative dir written by unexpanded audit path)
+~/.hermes/
+privacy-shield/~/.hermes/

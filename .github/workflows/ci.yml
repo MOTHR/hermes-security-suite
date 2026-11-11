@@ -73,10 +73,8 @@ jobs:
             privacy-shield/metrics.py \
             privacy-shield/lifecycle.py \
             privacy-shield/log_utils.py \
-            privacy-shield/scripts/enable_all_profiles.py \
             privacy-shield/tests/test_graceful_shutdown.py \
-            privacy-shield/tests/test_metrics.py \
-            privacy-shield/tests/test_enable_all_profiles.py
+            privacy-shield/tests/test_metrics.py
 
   type:
     runs-on: ubuntu-latest

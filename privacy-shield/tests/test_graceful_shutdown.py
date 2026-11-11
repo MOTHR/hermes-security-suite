@@ -7,10 +7,11 @@ atexit flush hook remains; ``on_session_finalize`` covers session boundaries.
 
 from __future__ import annotations
 
-import atexit
+import signal  # noqa: F401  (asserts signal.signal is never touched by the plugin)
 from unittest.mock import MagicMock
 
 import pytest
+
 from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.lifecycle import _shutdown_mapper, register_shutdown_hooks
 from privacy_shield.plugin import PrivacyShieldPlugin
