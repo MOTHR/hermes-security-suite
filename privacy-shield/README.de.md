@@ -4,7 +4,7 @@
 
 DSGVO-/GDPR-konformes Hermes-Plugin zur Tokenisierung personenbezogener Daten (PII) in sichtbarem LLM-Output und Reasoning-Inhalten.
 
-**Version:** 1.9.0 (2026-11-10) — 58 Erkennungsmuster · reiner Upstream-Plugin-Contract (llm_request-Middleware + pre_llm_call-Veto) · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
+**Version:** 1.9.3 (2026-11-11) — 58 Erkennungsmuster · reiner Upstream-Plugin-Contract (llm_request-Middleware + pre_llm_call-Veto) · PDF + Bild-OCR · Audit-Trail PDF/CSV/JSON-Export mit Ed25519-Signatur · Desktop-Controls-Pane · Reasoning-Pre-Intake-Tokenisierung (state.db-sicher)
 
 ## Features
 

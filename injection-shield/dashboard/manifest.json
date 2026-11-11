@@ -3,7 +3,7 @@
   "label": "Injection-Shield",
   "description": "Prompt-injection firewall for Hermes agents (tool-result scanning, credential-leak and concealment detectors). Backend config API for the Injection-Shield Controls desktop pane (mode: block/alert/audit, allowed domains, Telegram alert gate).",
   "icon": "Shield",
-  "version": "0.2.2",
+  "version": "0.8.2",
   "tab": { "hidden": true },
   "api": "plugin_api.py"
 }

@@ -55,6 +55,11 @@ jobs:
           python-version: "3.11"
           cache: "pip"
 
+      - name: Version sync gate (both plugins)
+        run: |
+          python privacy-shield/scripts/sync_version.py --check
+          python injection-shield/scripts/sync_version.py --check
+
       - name: Install ruff
         run: pip install "ruff==0.16.4"
 

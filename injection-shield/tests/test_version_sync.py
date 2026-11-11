@@ -77,9 +77,20 @@ def snapshot_versions(tmp_path):
     files = {
         "plugin.yaml": PLUGIN_YAML.read_bytes(),
         "__init__.py": INIT_PY.read_bytes(),
+        # The sync script also writes these version-bearing override files
+        # (EXTRA_VERSION_SOURCES). Without restoring them a `--set` test run
+        # would leave the repo working tree drifted — and any subsequent
+        # commit would capture the wrong version (link-devops review
+        # t_e90f577b blocker 2, reproduced 2026-11-11).
+        "plugin.de.yaml": (PLUGIN_ROOT / "plugin.de.yaml").read_bytes(),
+        "dashboard/manifest.json": (
+            PLUGIN_ROOT / "dashboard" / "manifest.json"
+        ).read_bytes(),
     }
     for name, data in files.items():
-        (snap_dir / name).write_bytes(data)
+        target = snap_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
 
     def restore() -> None:
         for name, data in files.items():

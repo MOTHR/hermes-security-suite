@@ -8,7 +8,7 @@
 
 Prompt-Injection-Abwehr mit Defense-in-Depth für Hermes Agent.
 
-**Version:** 0.7.1 (2026-11-06) — 7 Detektor-Schichten · 410+ Tests · Desktop-Controls-Pane · Telegram-Benachrichtigungen mit Severity-Filter + Rate-Limiting · Sync-Hook-Vertrag (Hermes v0.20.5+)
+**Version:** 0.8.2 (2026-11-11) — 7 Detektor-Schichten · 480+ Tests · Desktop-Controls-Pane · Telegram-Benachrichtigungen mit Severity-Filter + Rate-Limiting · Sync-Hook-Vertrag (Hermes v0.20.5+)
 
 ## Was es tut
 
@@ -172,7 +172,7 @@ MIT
 
 Prompt-injection defense-in-depth plugin for Hermes Agent.
 
-**Version:** 0.7.1 (2026-11-06) — 7 detector layers · 410+ tests · Desktop-Controls pane · Telegram alerting with severity gate + rate limiting · sync hook contract (Hermes v0.20.5+)
+**Version:** 0.8.2 (2026-11-11) — 7 detector layers · 480+ tests · Desktop-Controls pane · Telegram alerting with severity gate + rate limiting · sync hook contract (Hermes v0.20.5+)
 
 ## What it does
 

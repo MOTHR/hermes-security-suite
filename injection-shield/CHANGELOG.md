@@ -35,7 +35,7 @@ cross-references the review-ID it closes.
 
 ## [0.8.1] - 2026-11-10
 
-### Review-Welle 1+2 + Homoglyph-Generator (Orakel/Smith/Seraph, PR #150309)
+### Review-Welle 1+2 + Homoglyph-Generator (Orakel/Smith/Seraph, PR #150309): Detection-, Alert-Härtung und generierte Homoglyph-Map
 
 - `detectors/content_tagger.py`: die handgepickte `_HOMOGLYPHS`-Map ist
   entfernt; sie kommt jetzt aus dem generierten
@@ -46,11 +46,6 @@ cross-references the review-ID it closes.
   Konflikte: б→6, σ→o) und `tests/test_homoglyph_map.py` (Abgleich des
   ausgelieferten Moduls gegen die vendored Confusables- Quelle).
   Kein Verhalten-Change der `test_is_untrusted_source_*`-Regressionen.
-
-## [0.8.1] - 2026-11-10
-
-### Review-Welle 1+2 (Orakel/Smith/Seraph, PR #150309): Detection- und Alert-Härtung
-
 - **Smith 002 (HIGH)**: Homoglyph-Map in `is_untrusted_source` auf den
   TR39-Confusables-Satz erweitert (Cyrillic г→r inkl., Orakel-W2-1) —
   Mixed-Script-Tool-Namen wie `wеb_еxtrаct`/`wеbв_extract` umgehen die

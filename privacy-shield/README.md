@@ -4,7 +4,7 @@
 
 DSGVO-/GDPR-compliant Hermes plugin for tokenizing personal data (PII) in visible LLM output and reasoning content.
 
-**Version:** 1.9.0 (2026-11-10) — 58 detection patterns · pure upstream plugin contract (llm_request middleware + pre_llm_call veto) · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
+**Version:** 1.9.3 (2026-11-11) — 58 detection patterns · pure upstream plugin contract (llm_request middleware + pre_llm_call veto) · PDF + Image OCR · Audit-trail PDF/CSV/JSON export with Ed25519 signature · Desktop-Controls pane · Reasoning pre-intake tokenization (state.db-safe)
 
 ## Features
 

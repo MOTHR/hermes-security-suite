@@ -182,7 +182,25 @@ def check() -> int:
     init_v = read_init_version()
 
     if yaml_v == init_v:
-        print(f"OK: __init__.py and plugin.yaml agree on version {init_v}")
+        # EXTRA_VERSION_SOURCES must agree too — otherwise the release gate
+        # says OK while the shipped dashboard/manifest.json carries a stale
+        # version (link-devops review t_e90f577b blocker 3).
+        for extra_name, extra_path in zip(
+            ("plugin.de.yaml", "dashboard/manifest.json"),
+            EXTRA_VERSION_SOURCES,
+        ):
+            if not extra_path.exists():
+                continue
+            m = _VERSION_LINE_RE.search(extra_path.read_text(encoding="utf-8"))
+            extra_v = m.group("v") if m else "<missing>"
+            if extra_v != init_v:
+                print("VERSION DRIFT DETECTED:", file=sys.stderr)
+                print(f"  plugin.yaml     : {init_v}", file=sys.stderr)
+                print(f"  {extra_name}: {extra_v}", file=sys.stderr)
+                print("Run `python scripts/sync_version.py` to reconcile.",
+                      file=sys.stderr)
+                return 1
+        print(f"OK: all sources agree on version {init_v}")
         return 0
 
     print("VERSION DRIFT DETECTED:", file=sys.stderr)
