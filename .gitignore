@@ -9,3 +9,5 @@ privacy-shield/~/.hermes/
 
 dist/
 build/
+
+dist-*/

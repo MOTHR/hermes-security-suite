@@ -1,4 +1,5 @@
 include plugin.yaml
+recursive-include config *.yaml
 recursive-include dashboard *
 recursive-include desktop *
 global-exclude __pycache__ *.pyc

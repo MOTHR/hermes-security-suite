@@ -31,6 +31,19 @@ PLUGIN_ROOT = Path(__file__).resolve().parent.parent
 PLUGIN_YAML = PLUGIN_ROOT / "plugin.yaml"
 PYPROJECT = PLUGIN_ROOT / "pyproject.toml"
 INIT_PY = PLUGIN_ROOT / "__init__.py"
+# Additional version-bearing files that must agree with plugin.yaml
+# (link-devops review t_d6d44679: they drifted while the canonical
+# sources stayed in sync because sync_version never looked at them).
+EXTRA_VERSION_SOURCES = (
+    PLUGIN_ROOT / "plugin.de.yaml",
+    PLUGIN_ROOT / "dashboard" / "manifest.json",
+)
+
+# Covers both shapes: YAML `version: "1.2.3"` and JSON `"version": "1.2.3"`.
+_VERSION_LINE_RE = re.compile(
+    r'(?P<mode>^\s*"version"\s*:|^\s*version:)\s*"(?P<v>[^"]+)"',
+    re.MULTILINE,
+)
 
 
 class VersionError(RuntimeError):
@@ -193,6 +206,17 @@ def sync(version: str | None = None) -> str:
     INIT_PY.write_text(_set_init_version(init_text, version),
                        encoding="utf-8")
 
+    for extra in EXTRA_VERSION_SOURCES:
+        if not extra.exists():
+            continue
+        text = extra.read_text(encoding="utf-8")
+        new_text, n = _VERSION_LINE_RE.subn(
+            lambda m: f'{m.group("mode")} "{version}"', text, count=1
+        )
+        if n != 1:
+            raise VersionError(f"Could not locate version line in {extra}")
+        extra.write_text(new_text, encoding="utf-8")
+
     return version
 
 
@@ -219,6 +243,20 @@ def check() -> int:
     init_v = init_m.group(1) if init_m else "<missing>"
 
     if yaml_v == init_v and (pyproject_v.startswith("dynamic") or pyproject_v == init_v):
+        for extra in EXTRA_VERSION_SOURCES:
+            if not extra.exists():
+                continue
+            extra_v = None
+            m = _VERSION_LINE_RE.search(extra.read_text(encoding="utf-8"))
+            if m:
+                extra_v = m.group("v")
+            if extra_v != yaml_v:
+                print("VERSION DRIFT DETECTED:", file=sys.stderr)
+                print(f"  plugin.yaml     : {yaml_v}", file=sys.stderr)
+                print(f"  {extra.relative_to(PLUGIN_ROOT)}: {extra_v}", file=sys.stderr)
+                print("Run `python scripts/sync_version.py` to reconcile.",
+                      file=sys.stderr)
+                return 1
         print(f"OK: all sources agree on version {yaml_v}")
         return 0
 
