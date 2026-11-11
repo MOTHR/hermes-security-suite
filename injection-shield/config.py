@@ -140,7 +140,13 @@ def load_config(profile: str = "default") -> dict[str, Any]:
     # substitution always runs.
     audit_path = config.get("audit_log_path", DEFAULT_CONFIG["audit_log_path"])
     if isinstance(audit_path, str):
-        config["audit_log_path"] = audit_path.replace("{profile}", profile)
+        # Smith R2-blocker-3: the config layer must hand out EXPANDED paths —
+        # a literal-~ path written cwd-relative silently relocates the audit
+        # trail (data loss / leak into uncontrolled CWD). Callers may expand
+        # again; expanduser is idempotent.
+        config["audit_log_path"] = os.path.expanduser(
+            audit_path.replace("{profile}", profile)
+        )
 
     # FIX-1D CRIT-3: env-var > plugin.yaml > None. Never ship a hardcoded
     # chat_id — only a value the operator explicitly placed in their

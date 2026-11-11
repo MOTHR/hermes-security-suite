@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Smith-R2-Fixes (Peer-Review-Blocker, t_6ceb3433)
+
+- **Bounded-Dict-Miss ist jetzt fail-closed** (Smith Blocker-1): ein
+  evicteter/fehlender Staged-Entry degradiert die Middleware zu einem
+  Live-only-Standalone-Scan (mask_history=False) bzw. dem vollen Scan
+  (mask_history=True) statt raw auszuliefern — plus Eviction- und
+  Miss-Warnlog sowie Audit-Event `staged_shield_miss` (jeden Turn 1x).
+  Neue Regressionstests: Eviction × {mask_history an/aus}.
+- **expanduser im Config-Layer** (Smith Blocker-3): `load_config()`
+  liefert für `storage_path`, `*_restore_dir`, `audit_jsonl_path`,
+  `audit_log_path` expandierte absolute Pfade — ein literal-`~`-Pfad kann
+  keine CWD-relativen Artefakte mehr erzeugen (Ursache des Repo-Leak vom
+  2026-11-11). Consumers mit eigenem expanduser sind unberührt (idempotent).
+- `~`-Glob-Artifacts in .gitignore als Backstop (`.gitignore`-Muster
+  gegen literal-`~`-Verzeichnisse im Repo).
+
 ## [1.9.2] - 2026-11-11
 
 ### Doctor-Key-Assertion: kein Silent-False-Pass mehr ohne Encryption-Key

@@ -578,6 +578,7 @@ class InjectionShieldPlugin:
         source: str,
         violations: list[dict[str, Any]],
         session_key: str = "unknown",
+        tokens: int = 0,
     ) -> None:
         if not violations:
             return
@@ -593,6 +594,7 @@ class InjectionShieldPlugin:
             "layer": layer,
             "source": source,
             "session_key": _hash_session_key(session_key),
+            "tokens": tokens,
             "violations": [_redact_violation(v) for v in violations],
         }
         # Enrich with OWASP/ATLAS codes
@@ -1154,7 +1156,11 @@ class InjectionShieldPlugin:
         if violations:
             # FIX-3D MORPH-10: forward session_key so the audit entry
             # carries the same fingerprint as pre_tool_call / pre_llm_call.
-            self._log_attempt("post_llm_call", "llm_response", violations, session_key)
+            # Smith R2-blocker-2: tokens also lands in the audit entry
+            # (cost tracking / anomaly detection) instead of being dropped.
+            self._log_attempt(
+                "post_llm_call", "llm_response", violations, session_key, tokens
+            )
             self._alert_telegram(
                 f"🚨 Output blocked: {len(violations)} violation(s)\n"
                 f"Types: {[v.get('type') for v in violations[:3]]}\n"

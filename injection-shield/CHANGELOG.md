@@ -9,6 +9,16 @@ cross-references the review-ID it closes.
 
 ## [Unreleased]
 
+### Smith-R2-Fixes (Peer-Review-Blocker, t_6ceb3433)
+
+- **`tokens` landet im Audit-Entry** (Smith Blocker-2): `_log_attempt`
+  persistiert den Token-Count (Kosten-/Anomalie-Tracking) statt ihn am
+  Plugin-Adapter zu verschlucken; `post_llm_call` forwarded ihn.
+- **expanduser im Config-Layer** (Smith Blocker-3): `load_config()` liefert
+  `audit_log_path` absolut expandiert (`{profile}`-Substitution + expanduser)
+  — literal-`~`-Pfade können cwd-relativ nicht mehr ins unbeaufsichtigte
+  Working-Directory schreiben.
+
 ### Generator-basierte Homoglyph-Map (Orakel W2-1-Follow-up, t_cb41d625)
 
 - `detectors/content_tagger.py`: die handgepickte `_HOMOGLYPHS`-Map ist

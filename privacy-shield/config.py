@@ -26,7 +26,7 @@ from typing import Any, Literal
 # plugins can import them without pulling in this module. We re-import
 # here only so existing ``config.DEFAULT_HASH_LENGTH`` etc. references
 # keep working; new code MUST import from ``privacy_shield`` directly.
-from . import DEFAULT_HASH_LENGTH  # noqa: F401 (re-export)
+from . import DEFAULT_HASH_LENGTH
 
 try:
     import yaml
@@ -71,7 +71,6 @@ class ReasoningBlockConfig:
 class _ModeValidator:
     """Empty sentinel to keep dataclass declarations together."""
 
-    pass
 
 
 def _default_restore_channels() -> tuple[str, ...]:
@@ -562,6 +561,34 @@ def load_config() -> PrivacyShieldConfig:
             type(config.restore_miss_placeholder).__name__,
         )
         config.restore_miss_placeholder = DEFAULT_RESTORE_MISS_PLACEHOLDER
+    # Smith R2-blocker-3: the config layer must hand out EXPANDED paths.
+    # A literal-~ path consumed cwd-relative (e.g. by plain Path(...) or in
+    # a subprocess whose cwd is not $HOME) silently relocates the audit
+    # trail / mapping db into an uncontrolled directory — the exact
+    # mechanism that shipped audit artifacts into the repo on 2026-11-11.
+    # Consumers that expand again are unaffected (expanduser is idempotent).
+    _path_fields = (
+        "storage_path",
+        "pdf_restore_dir",
+        "image_restore_dir",
+        "email_restore_dir",
+        "audit_jsonl_path",
+        "audit_log_path",
+    )
+    for _field in _path_fields:
+        _value = getattr(config, _field, None)
+        if isinstance(_value, str) and _value.startswith("~"):
+            resolved = os.path.expanduser(_value)
+            if resolved == _value and _value.startswith("~/"):
+                # expanduser could not resolve (no HOME?) — keep the
+                # tilde path rather than writing cwd-relative artifacts.
+                logger.warning(
+                    "Privacy-Shield: HOME not resolvable; %s left as %r",
+                    _field,
+                    _value,
+                )
+            else:
+                setattr(config, _field, resolved)
     return config
 
 

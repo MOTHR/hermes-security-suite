@@ -617,6 +617,13 @@ class PrivacyShieldPlugin:
         while len(shields) > self._STAGED_MAX:
             oldest = next(iter(shields))
             shields.pop(oldest, None)
+            logger.warning(
+                "Privacy-Shield: staged shield for turn %r evicted "
+                "(staged dict at capacity %d) — its middleware call will "
+                "degrade to the fail-closed live-only scan",
+                oldest or "<empty>",
+                self._STAGED_MAX,
+            )
 
     def _read_staged_shield(self, turn_id: str) -> dict[str, Any] | None:
         """Return THIS turn's staged shield (exact turn-id key, read-only).
@@ -784,8 +791,20 @@ class PrivacyShieldPlugin:
         if staged is not None and not staged.get("sanitized"):
             staged = None
         mask_history = self.config.mask_history
+        # Smith R2-blocker-1: a staged MISS (evicted bounded-dict entry under
+        # load, or a turn that never staged) must NEVER be fail-open — with the
+        # old ``staged is None and not mask_history: return None`` shortcut an
+        # evicted entry under mask_history=False shipped the raw prompt. Miss
+        # degrades to a LIVE-ONLY standalone scan (fail-closed) plus a detective
+        # audit event.
+        miss_live_only = False
         if staged is None and not mask_history:
-            return None
+            miss_live_only = True
+            logger.warning(
+                "Privacy-Shield: no staged shield for turn %r — fail-closed "
+                "live-only standalone scan (staged dict evicted or never staged)",
+                turn_id or "<empty>",
+            )
 
         messages = request.get("messages") if isinstance(request, dict) else None
         if not isinstance(messages, list):
@@ -805,6 +824,10 @@ class PrivacyShieldPlugin:
             content = msg.get("content")
             is_live = not live_seen
             live_seen = True
+            if miss_live_only and not is_live:
+                # mask_history=False opt-out stands for HISTORY messages;
+                # only the live prompt is scanned fail-closed on a miss.
+                continue
 
             if isinstance(content, str):
                 spans: tuple[tuple[int | None, str], ...] = ((None, content),)
@@ -818,9 +841,10 @@ class PrivacyShieldPlugin:
             else:
                 # Unknown wire shape. v1.9.1 aborted the middleware here;
                 # with history masking a single opaque message must not
-                # suppress masking of the remaining user messages.
-                if not mask_history:
-                    return None
+                # suppress masking of the remaining user messages. Smith
+                # R2-blocker-1: without mask_history a miss is no longer
+                # fail-open either — skip the opaque message, keep scanning
+                # fail-closed.
                 continue
 
             if is_live:
@@ -844,12 +868,15 @@ class PrivacyShieldPlugin:
                     if not mask_history:
                         break  # v1.9.1 contract: only the live message
                 elif not mask_history:
-                    return None
+                    # Staged rewrite missed the span — Smith R2-blocker-1:
+                    # never fail-open. Fall through to the live-only
+                    # standalone scan below.
+                    miss_live_only = True
                 else:
                     # Fail-safe fallback scan found no hits on this span.
                     prompt_spans = ()
 
-            if mask_history:
+            if mask_history or miss_live_only:
                 for idx, text in prompt_spans:
                     masked, count, types = self._mask_user_text(text, audit_session)
                     if count:
@@ -888,6 +915,21 @@ class PrivacyShieldPlugin:
                     model=model or (staged or {}).get("model", ""),
                     platform=platform or (staged or {}).get("platform", ""),
                 )
+        if (
+            miss_live_only
+            and self.audit is not None
+            and getattr(self, "_miss_audit_turn", None) != turn_id
+        ):
+            self._miss_audit_turn = turn_id
+            self.audit.log(
+                event="staged_shield_miss",
+                session_id=audit_session,
+                masked_count=standalone_count,
+                pii_types=list(standalone_types),
+                mode=self.config.mode,
+                model=model,
+                platform=platform,
+            )
         logger.info(
             "Privacy-Shield: %d PII replacements in request messages "
             "(staged %d, standalone %d)",

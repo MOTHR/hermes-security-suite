@@ -16,11 +16,8 @@ from __future__ import annotations
 import json
 import re
 
-import pytest
-
 from privacy_shield.config import PrivacyShieldConfig
 from privacy_shield.plugin import PrivacyShieldPlugin
-
 
 PII_PROMPT = "Bitte schreib an max.mustermann@firma-gmbh.de"
 TOKEN_RE = re.compile(r"TOKEN_EMAIL_[0-9a-f]{10}_\d{3}")
@@ -311,6 +308,63 @@ class TestMiddlewareApplication:
             )
         assert len(plugin._staged_shields) <= plugin._STAGED_MAX
         assert "turn-0" not in plugin._staged_shields, "oldest entries evicted"
+
+    def test_evicted_entry_fails_closed(self, tmp_path, caplog):
+        """Smith R2-blocker-1: an entry evicted from the bounded dict must
+        degrade to the fail-closed live-only scan, never fail-open."""
+        plugin = _make_plugin(tmp_path)
+        plugin.config.mask_history = False
+        plugin.pre_llm_call(
+            PII_PROMPT,
+            context={"session_id": "s1", "turn_id": "turn-A"},
+        )
+        for i in range(plugin._STAGED_MAX + 6):
+            plugin._stage_shield(
+                turn_id=f"noise-{i}", payload={"sanitized": "x"}
+            )
+        assert plugin._staged_shields.get("turn-A") is None, "victim evicted"
+        request = {"messages": [{"role": "user", "content": PII_PROMPT}]}
+        result = plugin.apply_shield_to_request(
+            request, provider="anthropic", session_id="s1", turn_id="turn-A"
+        )
+        assert result is not None, "miss must fail closed, not return None"
+        content = request["messages"][0]["content"]
+        assert "max.mustermann@firma-gmbh.de" not in content, (
+            "raw PII must not ship on an evicted staged entry"
+        )
+        # detective audit event for the miss
+        assert plugin.audit is not None
+        assert "staged_shield_miss" in plugin.audit.log_path.read_text()
+        assert any(
+            "evicted" in record.getMessage() or "fail-closed" in record.getMessage()
+            for record in caplog.records
+        )
+
+    def test_evicted_entry_masks_history_fail_closed(self, tmp_path):
+        """mask_history default: an evicted entry must still trigger the
+        standalone scan over ALL user messages (fail-closed)."""
+        plugin = _make_plugin(tmp_path)  # mask_history defaults to True
+        plugin.pre_llm_call(
+            PII_PROMPT,
+            context={"session_id": "s1", "turn_id": "turn-A"},
+        )
+        for i in range(plugin._STAGED_MAX + 6):
+            plugin._stage_shield(
+                turn_id=f"noise-{i}", payload={"sanitized": "x"}
+            )
+        request = {"messages": [
+            {"role": "user", "content": "Historie: max.mustermann@firma-gmbh.de"},
+            {"role": "user", "content": PII_PROMPT},
+        ]}
+        result = plugin.apply_shield_to_request(
+            request, provider="anthropic", session_id="s1", turn_id="turn-A"
+        )
+        assert result is not None
+        joined = "\n".join(
+            m.get("content", "") if isinstance(m.get("content"), str) else ""
+            for m in request["messages"]
+        )
+        assert "max.mustermann@firma-gmbh.de" not in joined
 
     def test_turn_mismatch_does_not_apply_stale_shield(self, tmp_path):
         """A stale staged shield must not be applied to a foreign turn.

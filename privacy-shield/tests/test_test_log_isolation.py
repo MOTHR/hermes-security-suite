@@ -23,9 +23,12 @@ class TestAuditLogPathOverride:
         assert config.audit_log_path == target
 
     def test_env_unset_keeps_default(self, monkeypatch):
+        """Smith R2-blocker-3: load_config hands out EXPANDED paths — the
+        literal-~ default never reaches a consumer cwd-relative."""
         monkeypatch.delenv("PRIVACY_SHIELD_AUDIT_LOG_PATH", raising=False)
         config = load_config()
-        assert config.audit_log_path == DEFAULT_LOG_PATH
+        assert config.audit_log_path == os.path.expanduser(DEFAULT_LOG_PATH)
+        assert "~" not in config.audit_log_path
 
     def test_conftest_setdefault_respects_pre_set_env(self, monkeypatch, tmp_path):
         """conftest must not overwrite a value the caller set explicitly."""
