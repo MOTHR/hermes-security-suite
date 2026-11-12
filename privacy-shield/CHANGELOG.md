@@ -1,5 +1,12 @@
 ## [Unreleased]
 
+- **Asymmetrie-Statement (Secret-Routen, bewusst)**: injection-shield behielt
+  für den Alert-Pfad einen eigenen Env-Token-Fallback (opt-in Telegram-Token
+  eines Drittdienstes, funktioniert auch Hermes-frei); privacy-shield
+  entfernte die Key-Env-Route komplett (Review F1). Die Secret-Klassen sind
+  unterschiedlich sensibel und werden bewusst unterschiedlich behandelt —
+  nicht symmetrisches Verhalten zwischen beiden Plugins erwarten.
+
 ## [1.9.3] - 2026-11-11
 
 ### Round-2-Review-Fixes (teknium/Smith, PR #150309): Staged-Shield-Multiplex-Sicherheit + Konfig-Säuberung
