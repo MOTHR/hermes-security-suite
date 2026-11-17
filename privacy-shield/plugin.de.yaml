@@ -14,7 +14,7 @@ dependencies:
   - cryptography>=41.0.0
   - click>=8.0
   - pytesseract>=0.3.10
-  - Pillow>=10.0.0
+  - Pillow>=10.0.0,<14.0
   - pillow-heif>=0.16.0  # iPhone HEIC support (optional but recommended)
 license: MIT
 repository: https://github.com/MOTHR/hermes-privacy-shield
