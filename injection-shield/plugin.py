@@ -269,6 +269,9 @@ class InjectionShieldPlugin:
         self.config = load_config(profile=profile)
         self.enabled = bool(self.config.get("enabled", True))
         self.mode = str(self.config.get("mode", "audit"))
+        # FrontierBreach P0 (2026-11-18): severity-gated blocking knob,
+        # effective even in audit mode. Validated in config.validate_config.
+        self.enforce_min_severity = self.config.get("enforce_min_severity")
         self.allowed_domains = set(self.config.get("allowed_domains", DEFAULT_CONFIG["allowed_domains"]))
         self.risky_tools = set(self.config.get("risky_tools", DEFAULT_CONFIG["risky_tools"]))
         self.telegram_cfg = self.config.get("telegram", DEFAULT_CONFIG["telegram"])
@@ -310,7 +313,7 @@ class InjectionShieldPlugin:
         enabled_categories = set(
             self.config.get(
                 "tool_call_categories",
-                {"curl_exfil", "base64_pipe"},
+                {"curl_exfil", "base64_pipe", "destructive_ops"},
             )
         )
         self.tool_call_detector = ToolCallPatternDetector(
@@ -813,11 +816,18 @@ class InjectionShieldPlugin:
         violations = self._scan_text(args_str, context={"source": tool_name, "hook": "pre_tool_call"})
         if violations:
             self._log_attempt("pre_tool_call", tool_name, violations, session_key)
-            if self.mode == "enforcement":
+            if (
+                self.mode == "enforcement"
+                or (
+                    self.enforce_min_severity
+                    and self._severity_meets_threshold(violations, self.enforce_min_severity)
+                )
+            ):
                 return {
                     "action": "block",
                     "message": f"Injection detected in {tool_name}: {violations[:2]}",
                 }
+            return {"action": "allow"}
         return {"action": "allow"}
 
     # ------------------------------------------------------------------ #

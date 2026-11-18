@@ -81,7 +81,14 @@ DEFAULT_CONFIG: dict[str, Any] = {
     # keeps the curl-pattern off while leaving the base64-pipe RCE
     # pattern on.  The set is consumed by ToolCallPatternDetector
     # (see plugin.py).
-    "tool_call_categories": ["curl_exfil", "base64_pipe"],
+    "tool_call_categories": ["curl_exfil", "base64_pipe", "destructive_ops"],
+    # FrontierBreach P0 (2026-11-18): severity-gated blocking for the
+    # ``pre_tool_call`` hook, independent of ``mode``.  ``None`` (default)
+    # keeps pure audit behaviour; a value like "critical" blocks risky-tool
+    # calls whose violations meet that severity even in audit mode.  This
+    # lets critical ransomware/RCE shapes be blocked without flipping the
+    # whole shield into full enforcement.
+    "enforce_min_severity": None,
     # FIX-ALERT-NOISE (2026-08-29): Telegram alert de-noise knobs.
     # Egress sightings are medium severity → audit-log only, except the
     # FIRST sighting of a domain per first_seen_resend_hours window,
@@ -265,6 +272,14 @@ def validate_config(config: dict[str, Any]) -> list[str]:
                         f"risky_tools[{i}] must be a string, "
                         f"got {type(t).__name__}"
                     )
+
+    # ``enforce_min_severity`` — None or one of ALLOWED_SEVERITY
+    ems = config.get("enforce_min_severity")
+    if ems is not None and (not isinstance(ems, str) or ems not in ALLOWED_SEVERITY):
+        issues.append(
+            f"enforce_min_severity {ems!r} is not allowed; "
+            f"expected None or one of {ALLOWED_SEVERITY}"
+        )
 
     # v0.6.0 (M2, Seraph review): boolean scan-layer knobs
     for knob in (

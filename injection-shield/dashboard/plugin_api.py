@@ -95,6 +95,12 @@ EDITABLE_FIELDS: dict[str, dict[str, Any]] = {
         "label": "Tool-call detector categories",
         "default": DEFAULT_CONFIG["tool_call_categories"],
     },
+    "enforce_min_severity": {
+        "type": "choice",
+        "label": "Blocking severity (pre-tool-call)",
+        "choices": [None] + list(ALLOWED_SEVERITY),
+        "default": None,
+    },
     "telegram.enabled": {
         "type": "bool",
         "label": "Telegram alerting enabled",

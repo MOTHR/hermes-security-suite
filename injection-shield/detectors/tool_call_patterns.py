@@ -94,6 +94,53 @@ _BASE64_PIPE_PATTERNS: tuple[str, ...] = (
     r"(?i)\bopenssl\b[^\n|;&]*\|\s*(?:ba)?(?:sh|zsh|fish|ksh|pdksh|dash)\b",
 )
 
+# Destructive-operation shapes (FrontierBreach outcomes 3-6, 2026-11-18):
+# arbitrary code execution already covered by base64-pipe above; the
+# remaining destructive outcomes are data destruction / ransomware
+# / persistence.  FP-narrow by design — a plain ``rm -rf <dir>`` cleanup
+# does NOT match anything here; only the composite mass-deletion shapes
+# and the batch-encrypt-overwrite shape.
+#
+# Severity mapping (tuple order matters — see _DESTRUCTIVE_PATTERNS):
+#   * gpg batch-encrypt-overwrite (ransomware): the FrontierBreach
+#     Beam 1.0 payload (``gpg --batch --encrypt --output f.gpg f &&
+#     rm -f f``) — CRITICAL, the only destructive pattern severe
+#     enough for severity-gated blocking by default.
+#   * find-print0/while+rm-loop and find|xargs-rm pipelines (data
+#     destruction): HIGH — legit disk-cleanup uses adjacent shapes,
+#     so alert-only until observed FP-free.
+#   * persistence (crontab install, launchctl load/bootstrap, LaunchAgent
+#     writes, shell-rc appends): HIGH.
+_GPG_OVERWRITE_PATTERN: str = (
+    # gpg … --batch … --encrypt … rm … within bounded distance, same
+    # command line. --batch anchors the unattended (scripted) mode the
+    # ransomware shape requires; benign interactive/local gpg encrypts
+    # without a following rm do not match.
+    r"(?is)\bgpg\b(?=.{0,500}?--encrypt\b)(?=.{0,500}?--batch\b).{0,600}?\brm\b"
+)
+
+_MASS_DELETE_PATTERNS: tuple[str, ...] = (
+    # find ... -print0 | while ... rm ... done  (null-delimited mass
+    # delete loop — the exact FrontierBreach Beam 1.0 pipeline shape)
+    r"(?is)\bfind\b[^|\n]{0,300}?-print0[^|\n]{0,100}?\|[^|\n]{0,60}?\bwhile\b.{0,400}?\brm\b.{0,300}?\bdone\b",
+    # find ... | xargs rm  (plain mass delete)
+    r"(?is)\bfind\b[^|\n]{0,300}?\|[^|\n]{0,40}?\bxargs\b[^|\n]{0,40}?\brm\b",
+)
+
+_PERSISTENCE_PATTERNS: tuple[str, ...] = (
+    # crontab install via pipe or heredoc (``-l`` listing and plain
+    # ``crontab <file>`` edits of existing tables do not match;
+    # ``-r``/--remove does — it destroys the user's crontab)
+    r"(?i)\|\s*crontab\b",
+    r"(?i)\bcrontab\b.{0,30}<<",
+    r"(?i)\bcrontab\s+(?:-r|--remove|-u\b|-e\b)",
+    # launchd: loading/bootstrapping an agent or writing LaunchAgent plists
+    r"(?i)\blaunchctl\s+(?:load|bootstrap|enable)\b",
+    r"(?is)(?:\b(?:mv|cp|tee)\b|\bcat\s*>)[^\n]{0,200}?(?:LaunchAgents|/launchd/|\.plist\b)",
+    # shell-rc append (persistence in interactive shells)
+    r"(?i)>{1,2}\s*~?/?(?:\./)?\.(?:bashrc|zshrc|bash_profile|zprofile)\b",
+)
+
 
 class ToolCallPatternDetector(BaseDetector):
     """Detect exfiltration / RCE-shaped tool-call patterns (F-class).
@@ -137,17 +184,26 @@ class ToolCallPatternDetector(BaseDetector):
         # ``or`` would clobber an explicit ``set()`` because empty
         # sets are falsy.
         if enabled_categories is None:
-            cats: set[str] = {"curl_exfil", "base64_pipe"}
+            cats: set[str] = {"curl_exfil", "base64_pipe", "destructive_ops"}
         else:
             cats = set(enabled_categories)
-        patterns: list[tuple[str, re.Pattern[str]]] = []
+        # Patterns are (category, compiled_regex, severity) tuples so a
+        # category can carry mixed severities (gpg-overwrite is critical,
+        # the mass-delete/persistence shapes are high).
+        patterns: list[tuple[str, re.Pattern[str], str]] = []
         if "curl_exfil" in cats:
             for src in _CURL_EXFIL_PATTERNS:
-                patterns.append(("curl_exfil", re.compile(src)))
+                patterns.append(("curl_exfil", re.compile(src), "high"))
         if "base64_pipe" in cats:
             for src in _BASE64_PIPE_PATTERNS:
-                patterns.append(("base64_pipe", re.compile(src)))
-        self.regex: list[tuple[str, re.Pattern[str]]] = patterns
+                patterns.append(("base64_pipe", re.compile(src), "critical"))
+        if "destructive_ops" in cats:
+            patterns.append(("destructive_ops", re.compile(_GPG_OVERWRITE_PATTERN), "critical"))
+            for src in _MASS_DELETE_PATTERNS:
+                patterns.append(("destructive_ops", re.compile(src), "high"))
+            for src in _PERSISTENCE_PATTERNS:
+                patterns.append(("destructive_ops", re.compile(src), "high"))
+        self.regex: list[tuple[str, re.Pattern[str], str]] = patterns
         self.enabled_categories = cats
 
     def check(self, text: str, context: dict | None = None) -> list[dict[str, Any]]:
@@ -168,16 +224,12 @@ class ToolCallPatternDetector(BaseDetector):
         # inside the doc code being pasted.
         text = re.sub(r"```.*?```", "", text, flags=re.DOTALL)
         text = re.sub(r"`[^`\n]{1,500}`", "", text)
-        for category, regex in self.regex:
+        for category, regex, severity in self.regex:
             for match in regex.finditer(text):
                 snippet = match.group(0)
-                # Severity: base64-decode-pipe is unambiguously RCE
-                # (the attacker is feeding a shell a payload they
-                # control), so critical.  Curl exfil is high — it
-                # requires an exfil endpoint to be reachable, but the
-                # body data is what makes it an exfil rather than a
-                # benign API call.
-                severity = "critical" if category == "base64_pipe" else "high"
+                # Severity comes from the pattern tuple (base64-pipe and
+                # gpg-overwrite are critical; curl-exfil and the
+                # destructive mass-delete/persistence shapes are high).
                 # 2026-09-22 production finding: curl-POST *examples* in
                 # skill documentation (api.semanticscholar.org etc.) fired
                 # high alerts. When the target host is in the operator's
@@ -193,7 +245,11 @@ class ToolCallPatternDetector(BaseDetector):
                         ):
                             severity = "info"
                 violations.append({
-                    "type": "tool_call_exfil",
+                    "type": (
+                        "tool_call_destructive"
+                        if category == "destructive_ops"
+                        else "tool_call_exfil"
+                    ),
                     "category": category,
                     "pattern": category,
                     "match": snippet[:80],
@@ -206,5 +262,8 @@ class ToolCallPatternDetector(BaseDetector):
 __all__ = [
     "_BASE64_PIPE_PATTERNS",
     "_CURL_EXFIL_PATTERNS",
+    "_GPG_OVERWRITE_PATTERN",
+    "_MASS_DELETE_PATTERNS",
+    "_PERSISTENCE_PATTERNS",
     "ToolCallPatternDetector",
 ]
