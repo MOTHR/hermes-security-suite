@@ -9,6 +9,38 @@ cross-references the review-ID it closes.
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-18
+
+### FrontierBreach P0: destructive_ops + severity-gated pre_tool_call blocking + Review-R1-Fixes
+
+Source review wave 1: Orakel t_27a02417 / agent-smith t_089e069d / seraph t_af335218
+(reports: `03-Projects/hermes-security-suite/frontierbreach-p0/`).
+
+### Added
+- `ToolCallPatternDetector` category `destructive_ops` (FrontierBreach outcomes: data destruction,
+  ransomware, persistence): gpg batch-encrypt-overwrite, find-print0/while & xargs mass-delete,
+  crontab/launchd/plist/shell-rc persistence shapes; violation type `tool_call_destructive`.
+- Config knob `enforce_min_severity` (None = audit-only default): blocks risky-tool calls meeting
+  the severity even in audit mode.
+- `execute_code` added to `risky_tools` default (Smith H2.1: gate bypass via non-terminal tools).
+- Non-egress alert rate-limit fallback bucket keyed by strongest violation's pattern/category
+  (Orakel F2: repeated same-shaped hits pinged Telegram without damping).
+
+### Fixed
+- Orakel F1: gpg rule split by mv-reinstatement marker — critical only for the in-place overwrite
+  shape (`rm … && mv *.gpg original`); legit encrypt-then-shred hygiene is HIGH, never blocked.
+- Orakel F4 / Seraph OBS-1: invalid `enforce_min_severity` (typo) is neutralized to `None` with a
+  WARNING at plugin init instead of silently widening the gate via the SEVERITY_RANK fallback.
+- Seraph FINDING-1/2: CHANGELOG entry, version 0.9.0, `validate_config` tests for the new knob.
+
+### Known gaps (deliberate coverage decisions)
+- Bounded-lookahead evasion: >2000 junk chars between gpg tokens evade the rule (Orakel F3);
+  `find … -exec rm {} +` / `find … -delete` intentionally unmatched (FP-heaviest legit cleanup
+  shapes, Orakel F3 / Smith H1.2); keyword obfuscation via character-code construction is a
+  surface-regex limit (Smith H1.1).
+- Security-review agents quoting full attack payloads inside `terminal`/`execute_code` args will
+  trip the gate exactly like an attacker would; quote payloads in files, not command args.
+
 ## [0.8.2] - 2026-11-11
 
 ### Round-2-Review-Fixes (teknium/Smith, PR #150309): Adapter-Wire-Contract + Audit-Vervollständigung

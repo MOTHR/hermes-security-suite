@@ -44,10 +44,11 @@ def _destructive(hits: list) -> list:
     [
         # FrontierBreach Beam 1.0 payload, embedded in the full find pipeline
         BEAM_PAYLOAD,
-        # minimal shape: batch encrypt then delete the plaintext original
-        "gpg --batch --yes --encrypt --output out.gpg in.txt && rm -f in.txt",
-        # trust-model variant
-        "gpg --batch --trust-model always --encrypt -o f.gpg f; rm f",
+        # minimal overwrite shape: encrypt, delete original, reinstate the
+        # encrypted copy over the plaintext path (in-place overwrite marker)
+        "gpg --batch --yes --encrypt --output out.gpg in.txt && rm -f in.txt && mv out.gpg in.txt",
+        # trust-model variant with reinstatement
+        "gpg --batch --trust-model always --encrypt -o f.gpg f; rm f; mv f.gpg f",
     ],
 )
 def test_gpg_overwrite_is_critical(det: ToolCallPatternDetector, payload: str) -> None:
@@ -72,6 +73,20 @@ def test_gpg_overwrite_is_critical(det: ToolCallPatternDetector, payload: str) -
 def test_mass_delete_is_high(det: ToolCallPatternDetector, payload: str) -> None:
     hits = _destructive(det.check(payload))
     assert hits
+    assert {h["severity"] for h in hits} == {"high"}
+
+
+@pytest.mark.parametrize("payload", [
+    # Orakel R1 F1 PoC: legit "encrypt a backup, then delete the plaintext"
+    # hygiene — NO mv-reinstatement, therefore alert-only, never blocked
+    # by a critical gate.
+    "gpg --batch --yes --encrypt --recipient KEY -o /backup/daily.tar.gpg /backup/daily.tar && rm /backup/daily.tar",
+    "gpg --batch --trust-model always --encrypt -o secrets.gpg secrets.tar; rm secrets.tar",
+])
+def test_gpg_encrypt_without_mv_is_not_critical(det: ToolCallPatternDetector, payload: str) -> None:
+    hits = _destructive(det.check(payload))
+    assert hits, "expected the high-tier gpg encrypt+rm rule to match"
+    assert "critical" not in {h["severity"] for h in hits}
     assert {h["severity"] for h in hits} == {"high"}
 
 
@@ -194,3 +209,32 @@ def test_enforcement_mode_blocks_high_independently_of_knob(
     )
     assert result is not None
     assert result["action"] == "block"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Knob hardening — invalid enforce_min_severity must not widen the gate
+# (Orakel R1 F4 / Seraph OBS-1)
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_plugin_init_neutralizes_invalid_enforce_min_severity(
+    monkeypatch, tmp_path,
+) -> None:
+    import injection_shield.plugin as plugin_mod
+
+    cfg = dict(plugin_mod.DEFAULT_CONFIG)
+    cfg["enforce_min_severity"] = "critial"  # typo — must not fall to rank 2
+    cfg["audit_log_path"] = str(tmp_path / "audit.log")
+    monkeypatch.setattr(plugin_mod, "load_config", lambda profile="default": cfg)
+    p = plugin_mod.InjectionShieldPlugin(profile="default")
+    assert p.enforce_min_severity is None
+
+
+def test_plugin_init_keeps_valid_enforce_min_severity(monkeypatch, tmp_path) -> None:
+    import injection_shield.plugin as plugin_mod
+
+    cfg = dict(plugin_mod.DEFAULT_CONFIG)
+    cfg["enforce_min_severity"] = "critical"
+    cfg["audit_log_path"] = str(tmp_path / "audit.log")
+    monkeypatch.setattr(plugin_mod, "load_config", lambda profile="default": cfg)
+    p = plugin_mod.InjectionShieldPlugin(profile="default")
+    assert p.enforce_min_severity == "critical"

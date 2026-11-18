@@ -56,7 +56,10 @@ DEFAULT_CONFIG: dict[str, Any] = {
         # (2026-09-22: curl-POST docs examples fired exfil alerts).
         "api.semanticscholar.org",
     ],
-    "risky_tools": ["terminal", "write_file"],
+    # FrontierBreach P0 (2026-11-18, Smith H2.1): execute_code must be in
+    # the pre_tool_call scan scope — a destructive/exfil shell shape can
+    # hide in Python code text just as well as in terminal args.
+    "risky_tools": ["terminal", "write_file", "execute_code"],
     "telegram": {
         # FIX-1D CRIT-3: Telegram alerting is OFF by default. To enable
         # it the operator must set ``chat_id`` in plugin.yaml or export

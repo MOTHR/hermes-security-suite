@@ -111,12 +111,38 @@ _BASE64_PIPE_PATTERNS: tuple[str, ...] = (
 #     so alert-only until observed FP-free.
 #   * persistence (crontab install, launchctl load/bootstrap, LaunchAgent
 #     writes, shell-rc appends): HIGH.
-_GPG_OVERWRITE_PATTERN: str = (
-    # gpg … --batch … --encrypt … rm … within bounded distance, same
-    # command line. --batch anchors the unattended (scripted) mode the
-    # ransomware shape requires; benign interactive/local gpg encrypts
-    # without a following rm do not match.
-    r"(?is)\bgpg\b(?=.{0,500}?--encrypt\b)(?=.{0,500}?--batch\b).{0,600}?\brm\b"
+# gpg destructive-operation shapes (FrontierBreach P0, re-cut after
+# Orakel R1 F1/F3, 2026-11-18). Two severity tiers, distinguished by
+# the in-place-overwrite marker: the ransomware shape REINSTATES the
+# encrypted artifact over the original with ``mv`` (``rm -f "$f" &&
+# mv "$f.gpg" "$f"``) — a shape that essentially never occurs in
+# legitimate "encrypt a backup, then delete the plaintext" hygiene,
+# which lacks the mv-reinstatement. Review F1 PoC: gpg + --batch +
+# --encrypt + rm WITHOUT mv matches a legit daily-backup command —
+# that variant is therefore HIGH (alert-only), not a blocking rule.
+#
+# Known gap (Orakel R1 F3, documented deliberately): bounded
+# lookaheads — >2000 junk chars between tokens evade the rule, and
+# the shell-idiom ``find ... -exec rm {} +`` / ``find ... -delete``
+# mass-delete forms are intentionally NOT matched (they are the
+# FP-heaviest legit cleanup shapes; Smith H1.2 confirms the coverage
+# decision). Detection of padded/obfuscated payloads (Smith H1.1
+# keyword obfuscation via character-code construction) is a surface-
+# regex limit and out of scope for this layer.
+_GPG_OVERWRITE_CRITICAL: str = (
+    # gpg … --batch … --encrypt … rm … mv … within bounded distance, same
+    # command line: unattended encrypt + delete original + reinstate
+    # encrypted copy over the plaintext path (in-place overwrite).
+    r"(?is)\bgpg\b(?=.{0,2000}?--encrypt\b)(?=.{0,2000}?--batch\b)"
+    r"(?=.{0,2500}?\brm\b)(?=.{0,2500}?\bmv\b)"
+)
+
+_GPG_ENCRYPT_RM_HIGH: str = (
+    # gpg … --batch … --encrypt … rm … : unattended encrypt + delete
+    # plaintext original, WITHOUT mv-reinstatement. Broadly FP-safe
+    # but matches legit backup hygiene, hence alert-only.
+    r"(?is)\bgpg\b(?=.{0,2000}?--encrypt\b)(?=.{0,2000}?--batch\b)"
+    r"(?=.{0,2500}?\brm\b)"
 )
 
 _MASS_DELETE_PATTERNS: tuple[str, ...] = (
@@ -198,7 +224,8 @@ class ToolCallPatternDetector(BaseDetector):
             for src in _BASE64_PIPE_PATTERNS:
                 patterns.append(("base64_pipe", re.compile(src), "critical"))
         if "destructive_ops" in cats:
-            patterns.append(("destructive_ops", re.compile(_GPG_OVERWRITE_PATTERN), "critical"))
+            patterns.append(("destructive_ops", re.compile(_GPG_OVERWRITE_CRITICAL), "critical"))
+            patterns.append(("destructive_ops", re.compile(_GPG_ENCRYPT_RM_HIGH), "high"))
             for src in _MASS_DELETE_PATTERNS:
                 patterns.append(("destructive_ops", re.compile(src), "high"))
             for src in _PERSISTENCE_PATTERNS:
@@ -262,7 +289,8 @@ class ToolCallPatternDetector(BaseDetector):
 __all__ = [
     "_BASE64_PIPE_PATTERNS",
     "_CURL_EXFIL_PATTERNS",
-    "_GPG_OVERWRITE_PATTERN",
+    "_GPG_ENCRYPT_RM_HIGH",
+    "_GPG_OVERWRITE_CRITICAL",
     "_MASS_DELETE_PATTERNS",
     "_PERSISTENCE_PATTERNS",
     "ToolCallPatternDetector",

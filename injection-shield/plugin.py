@@ -85,7 +85,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from .config import DEFAULT_CONFIG, load_config
+from .config import ALLOWED_SEVERITY, DEFAULT_CONFIG, load_config
 from .detectors import (
     ContentTagger,
     CredentialLeakDetector,
@@ -270,8 +270,22 @@ class InjectionShieldPlugin:
         self.enabled = bool(self.config.get("enabled", True))
         self.mode = str(self.config.get("mode", "audit"))
         # FrontierBreach P0 (2026-11-18): severity-gated blocking knob,
-        # effective even in audit mode. Validated in config.validate_config.
-        self.enforce_min_severity = self.config.get("enforce_min_severity")
+        # effective even in audit mode. Validated in config.validate_config;
+        # the loader does NOT run validate_config (Orakel R1 F4 / Seraph
+        # OBS-1), so an invalid value (typo like "critial") must not
+        # silently widen the gate via the SEVERITY_RANK fallback rank 2 —
+        # harden to None with a warning instead.
+        _ems = self.config.get("enforce_min_severity")
+        if _ems is None or _ems in ALLOWED_SEVERITY:
+            self.enforce_min_severity = _ems
+        else:
+            logger.warning(
+                "injection-shield: enforce_min_severity %r is invalid; "
+                "disabling severity-gated blocking (expected None or one of %s)",
+                _ems,
+                ALLOWED_SEVERITY,
+            )
+            self.enforce_min_severity = None
         self.allowed_domains = set(self.config.get("allowed_domains", DEFAULT_CONFIG["allowed_domains"]))
         self.risky_tools = set(self.config.get("risky_tools", DEFAULT_CONFIG["risky_tools"]))
         self.telegram_cfg = self.config.get("telegram", DEFAULT_CONFIG["telegram"])
@@ -718,14 +732,34 @@ class InjectionShieldPlugin:
                     "verschwindet."
                 )
         else:
-            # Gate 2: rate limit other alert kinds per domain.
-            if domain_key:
-                rl_key = ("rate", alert_kind, domain_key)
-                limit = int(self.config.get("alert_rate_limit_seconds", 3600))
-                last_sent = self._alert_rate_state.get(rl_key, 0)
-                if now - last_sent < limit:
-                    return
-                self._alert_rate_state[rl_key] = now
+            # Gate 2: rate limit other alert kinds per domain. Without a
+            # domain key (Orakel R1 F2, 2026-11-18): non-egress alerts
+            # had NO bucket, so every occurrence of a same-shaped hit
+            # (e.g. docs quoting a crontab shape) re-pinged Telegram.
+            # Fall back to a scope bucket keyed by the strongest
+            # violation's pattern/category so identical-shaped repeats
+            # are damped within the window while genuinely different
+            # shapes still alert.
+            scope_tag = domain_key
+            if not scope_tag:
+                strongest = max(
+                    (violations or []),
+                    key=lambda v: SEVERITY_RANK.get(v.get("severity", "low"), 1),
+                    default=None,
+                )
+                if strongest is not None:
+                    scope_tag = str(
+                        strongest.get("pattern")
+                        or strongest.get("category")
+                        or strongest.get("type")
+                        or "_"
+                    )
+            rl_key = ("rate", alert_kind, scope_tag or "_anon")
+            limit = int(self.config.get("alert_rate_limit_seconds", 3600))
+            last_sent = self._alert_rate_state.get(rl_key, 0)
+            if now - last_sent < limit:
+                return
+            self._alert_rate_state[rl_key] = now
 
         try:
             import requests

@@ -110,6 +110,18 @@ def test_validate_config_rejects_bad_min_severity() -> None:
     assert any("min_severity" in i for i in issues), issues
 
 
+def test_validate_config_rejects_bad_enforce_min_severity() -> None:
+    config = {**DEFAULT_CONFIG, "enforce_min_severity": "ultra"}
+    issues = validate_config(config)
+    assert any("enforce_min_severity" in i for i in issues), issues
+
+
+def test_validate_config_accepts_enforce_min_severity_variants() -> None:
+    for value in (None, "low", "medium", "high", "critical"):
+        config = {**DEFAULT_CONFIG, "enforce_min_severity": value}
+        assert validate_config(config) == [], (value, validate_config(config))
+
+
 def test_validate_config_rejects_audit_log_max_bytes_too_small() -> None:
     config = {**DEFAULT_CONFIG, "audit_log_max_bytes": 0}
     issues = validate_config(config)
