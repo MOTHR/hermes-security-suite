@@ -737,10 +737,14 @@ class InjectionShieldPlugin:
             # had NO bucket, so every occurrence of a same-shaped hit
             # (e.g. docs quoting a crontab shape) re-pinged Telegram.
             # Fallback scope = strongest violation's pattern/category +
-            # normalized match prefix (Orakel W2-F3: a category-level
-            # key blacked out ALL other shapes of the same category for
-            # the window; the match-prefix key damps identical repeats
-            # while different shapes still alert).
+            # normalized match prefix (Orakel F2/W2-F3/W3-F1). NOTE the
+            # granularity boundary: for lookahead-anchored patterns the
+            # match collapses to the anchor token (e.g. "gpg" or
+            # "| crontab"), so the bucket is FAMILY-level there —
+            # intra-family variants (same anchor, different payload)
+            # share the damping window; consuming patterns (e.g.
+            # find|xargs) yield true per-shape keys. Different families
+            # still alert independently; identical repeats stay damped.
             scope_tag = domain_key
             if not scope_tag:
                 strongest = max(

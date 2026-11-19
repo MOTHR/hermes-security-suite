@@ -25,8 +25,10 @@ Source review wave 1: Orakel t_27a02417 / agent-smith t_089e069d / seraph t_af33
 - `execute_code` added to `risky_tools` default (Smith H2.1: gate bypass via non-terminal tools).
 - Non-egress alert rate-limit fallback bucket keyed by strongest violation's
   pattern/category + normalized match prefix (Orakel F2: repeated same-shaped
-  hits pinged Telegram without damping; Orakel W2-F3: per-shape scope so other
-  shapes of the same category still alert, identical repeats stay damped).
+  hits pinged Telegram without damping). Granularity boundary (Orakel W3-F1):
+  for lookahead-anchored patterns the match collapses to the anchor token, so
+  the bucket is family-level there — intra-family variants share the damping
+  window (Known gaps); consuming patterns yield true per-shape keys.
 
 ### Fixed
 - Orakel F1: gpg rule split by mv-reinstatement marker — critical only for the
@@ -41,6 +43,10 @@ Source review wave 1: Orakel t_27a02417 / agent-smith t_089e069d / seraph t_af33
 - Seraph FINDING-1/2: CHANGELOG entry, version 0.9.0, `validate_config` tests for the new knob.
 
 ### Known gaps (deliberate coverage decisions)
+- Rate-limit fallback: for lookahead-anchored patterns (gpg/crontab/launchctl) the
+  bucket is family-level — an intra-family variant within the same 1-h window can
+  share its predecessor's damping; blocking and audit logging are unaffected
+  (Orakel W3-F1, Telegram-alert-only residual).
 - Bounded-lookahead evasion: >2000 junk chars between gpg tokens evade the rule (Orakel F3);
   `find … -exec rm {} +` / `find … -delete` intentionally unmatched (FP-heaviest legit cleanup
   shapes, Orakel F3 / Smith H1.2); keyword obfuscation via character-code construction is a
