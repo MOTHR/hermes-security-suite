@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-__version__ = "1.9.4"
+__version__ = "1.9.5"
 
 __plugin_id__ = "privacy-shield"
 

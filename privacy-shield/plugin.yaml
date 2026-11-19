@@ -1,5 +1,5 @@
 name: privacy-shield
-version: "1.9.4"
+version: "1.9.5"
 description: >-
   Privacy-Shield — Tokenizes personal data (PII) in LLM output before
   sending it to cloud providers. Modes: off / audit / restore. Configurable

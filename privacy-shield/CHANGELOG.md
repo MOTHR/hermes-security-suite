@@ -1,4 +1,4 @@
-## [Unreleased]
+## [1.9.5] - 2026-11-19
 
 - **fix(Issue #6) — Doppel-Ausgabe im restore-Modus (`transform_is_inline`)**:
   die `transform_llm_output`-Rewrite gibt bei Inline-Substitution (Token-Restore
