@@ -1583,7 +1583,7 @@ class PrivacyShieldPlugin:
             descriptor = inspect.getattr_static(obj, field, None)
             if isinstance(descriptor, property):
                 return descriptor.fset is None
-        except Exception:  # noqa: BLE001 -- fail-open
+        except Exception:  # noqa: BLE001, S110 -- fail-open: read-only-Check darf nie brechen
             pass
         return False
 
