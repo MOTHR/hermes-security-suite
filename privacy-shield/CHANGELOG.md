@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+- **fix(Issue #5) — BIC-Detektor False-Positives**: der BIC/SWIFT-Detektor
+  validiert Kandidaten jetzt nach ISO 9362: strikt 8 oder 11 Zeichen,
+  ISO-3166-1-alpha-2-Ländercode an Position 5-6, kuratierte Wort-Ausschluss-
+  liste für gewöhnliche Uppercase-Wörter (83%-FP-Baseline aus dem Issue) und
+  optional konfigurierbare Kontext-Cues (`bic_context_cues` /
+  `bic_cue_window`, Default: aus). Der Gate greift auf beiden Emissionstypen
+  (`bic` und `swift_code`).
+- **fix(Issue #5) — Delegated-Transit-Korruption**: der Delegations-Kanal
+  (`platform="subagent"`, von delegate_tool gesetzt) ist jetzt verlässlicher
+  Restore-Kanal (`DELEGATED_TRANSIT_CHANNELS` + Bare-Default in
+  `restore_allowed_channels`). Restore-Misses im Transit sind verlustfrei:
+  Token bleibt verbatim statt des destruktiven Restore-Miss-Platzhalters.
+  User-facing-Kanäle und Egress-Kanäle unverändert.
+
 - **Asymmetrie-Statement (Secret-Routen, bewusst)**: injection-shield behielt
   für den Alert-Pfad einen eigenen Env-Token-Fallback (opt-in Telegram-Token
   eines Drittdienstes, funktioniert auch Hermes-frei); privacy-shield
