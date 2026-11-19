@@ -736,10 +736,11 @@ class InjectionShieldPlugin:
             # domain key (Orakel R1 F2, 2026-11-18): non-egress alerts
             # had NO bucket, so every occurrence of a same-shaped hit
             # (e.g. docs quoting a crontab shape) re-pinged Telegram.
-            # Fall back to a scope bucket keyed by the strongest
-            # violation's pattern/category so identical-shaped repeats
-            # are damped within the window while genuinely different
-            # shapes still alert.
+            # Fallback scope = strongest violation's pattern/category +
+            # normalized match prefix (Orakel W2-F3: a category-level
+            # key blacked out ALL other shapes of the same category for
+            # the window; the match-prefix key damps identical repeats
+            # while different shapes still alert).
             scope_tag = domain_key
             if not scope_tag:
                 strongest = max(
@@ -748,12 +749,14 @@ class InjectionShieldPlugin:
                     default=None,
                 )
                 if strongest is not None:
-                    scope_tag = str(
+                    base = str(
                         strongest.get("pattern")
                         or strongest.get("category")
                         or strongest.get("type")
                         or "_"
                     )
+                    match_norm = " ".join(str(strongest.get("match") or "").split())[:40]
+                    scope_tag = f"{base}:{match_norm}"
             rl_key = ("rate", alert_kind, scope_tag or "_anon")
             limit = int(self.config.get("alert_rate_limit_seconds", 3600))
             last_sent = self._alert_rate_state.get(rl_key, 0)

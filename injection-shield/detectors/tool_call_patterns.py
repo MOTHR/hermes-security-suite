@@ -145,6 +145,20 @@ _GPG_ENCRYPT_RM_HIGH: str = (
     r"(?=.{0,2500}?\brm\b)"
 )
 
+# W2-F1 (Orakel wave-2, 2026-11-19): the rm-free minimal overwrite
+# form — `gpg --encrypt --output f.gpg f && mv f.gpg f` — evaded BOTH
+# prior gpg tiers (rm was required). It is the shortest ransomware
+# core shape and fits Beam-style loops, so a third critical tier is
+# anchored on mv WITHOUT requiring rm. Accepted residual FP surface
+# (W2-F2, pinned by test_gpg_encrypt_with_offsite_mv_is_critical):
+# legit encrypt-then-move-offsite pipelines with an mv in the same
+# command line also fire critical — a deliberate tradeoff; surface
+# regex cannot compare mv source/target paths.
+_GPG_REINSTATE_NO_RM_CRITICAL: str = (
+    r"(?is)\bgpg\b(?=.{0,2000}?--encrypt\b)(?=.{0,2000}?--batch\b)"
+    r"(?=.{0,2500}?\bmv\b)"
+)
+
 _MASS_DELETE_PATTERNS: tuple[str, ...] = (
     # find ... -print0 | while ... rm ... done  (null-delimited mass
     # delete loop — the exact FrontierBreach Beam 1.0 pipeline shape)
@@ -225,6 +239,7 @@ class ToolCallPatternDetector(BaseDetector):
                 patterns.append(("base64_pipe", re.compile(src), "critical"))
         if "destructive_ops" in cats:
             patterns.append(("destructive_ops", re.compile(_GPG_OVERWRITE_CRITICAL), "critical"))
+            patterns.append(("destructive_ops", re.compile(_GPG_REINSTATE_NO_RM_CRITICAL), "critical"))
             patterns.append(("destructive_ops", re.compile(_GPG_ENCRYPT_RM_HIGH), "high"))
             for src in _MASS_DELETE_PATTERNS:
                 patterns.append(("destructive_ops", re.compile(src), "high"))
@@ -291,6 +306,7 @@ __all__ = [
     "_CURL_EXFIL_PATTERNS",
     "_GPG_ENCRYPT_RM_HIGH",
     "_GPG_OVERWRITE_CRITICAL",
+    "_GPG_REINSTATE_NO_RM_CRITICAL",
     "_MASS_DELETE_PATTERNS",
     "_PERSISTENCE_PATTERNS",
     "ToolCallPatternDetector",

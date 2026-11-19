@@ -158,6 +158,34 @@ def blocking_plugin(tmp_path) -> InjectionShieldPlugin:
     return p
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# W2-F1 (Orakel wave-2): rm-free minimal overwrite form — critical
+# ═══════════════════════════════════════════════════════════════════════════
+
+@pytest.mark.parametrize("payload", [
+    "gpg --batch --yes --trust-model always --encrypt --output \"$f.gpg\" \"$f\" && mv \"$f.gpg\" \"$f\"",
+])
+def test_gpg_reinstate_without_rm_is_critical(det: ToolCallPatternDetector, payload: str) -> None:
+    hits = _destructive(det.check(payload))
+    assert hits
+    assert "critical" in {h["severity"] for h in hits}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# W2-F2 (Orakel wave-2): accepted residual FP — encrypt + rm + mv offsite
+# fires critical (surface regex cannot compare mv paths); pinned so the
+# tradeoff stays a documented, deliberate decision.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def test_gpg_encrypt_with_offsite_mv_is_critical(det: ToolCallPatternDetector) -> None:
+    payload = (
+        "gpg --batch --yes --encrypt --recipient OPS -o /mnt/nas/vault-daily.gpg "
+        "/backup/daily.tar && rm /backup/daily.tar && mv /mnt/nas/vault-daily.gpg /mnt/nas/archive/"
+    )
+    hits = _destructive(det.check(payload))
+    assert "critical" in {h["severity"] for h in hits}
+
+
 def test_audit_mode_blocks_critical_when_knob_set(
     blocking_plugin: InjectionShieldPlugin,
 ) -> None:

@@ -23,12 +23,19 @@ Source review wave 1: Orakel t_27a02417 / agent-smith t_089e069d / seraph t_af33
 - Config knob `enforce_min_severity` (None = audit-only default): blocks risky-tool calls meeting
   the severity even in audit mode.
 - `execute_code` added to `risky_tools` default (Smith H2.1: gate bypass via non-terminal tools).
-- Non-egress alert rate-limit fallback bucket keyed by strongest violation's pattern/category
-  (Orakel F2: repeated same-shaped hits pinged Telegram without damping).
+- Non-egress alert rate-limit fallback bucket keyed by strongest violation's
+  pattern/category + normalized match prefix (Orakel F2: repeated same-shaped
+  hits pinged Telegram without damping; Orakel W2-F3: per-shape scope so other
+  shapes of the same category still alert, identical repeats stay damped).
 
 ### Fixed
-- Orakel F1: gpg rule split by mv-reinstatement marker — critical only for the in-place overwrite
-  shape (`rm … && mv *.gpg original`); legit encrypt-then-shred hygiene is HIGH, never blocked.
+- Orakel F1: gpg rule split by mv-reinstatement marker — critical only for the
+  in-place overwrite shape (`rm … && mv *.gpg original`); legit encrypt-then-shred
+  WITHOUT mv is HIGH, never blocked. Orakel W2-F2: variants WITH an mv in the same
+  pipeline (incl. move-offsite) fire CRITICAL — deliberate tradeoff, pinned by
+  `test_gpg_encrypt_with_offsite_mv_is_critical`. Orakel W2-F1: the rm-free
+  minimal overwrite form (`gpg -e -o f.gpg f && mv f.gpg f`) is its own critical
+  tier (`_GPG_REINSTATE_NO_RM_CRITICAL`).
 - Orakel F4 / Seraph OBS-1: invalid `enforce_min_severity` (typo) is neutralized to `None` with a
   WARNING at plugin init instead of silently widening the gate via the SEVERITY_RANK fallback.
 - Seraph FINDING-1/2: CHANGELOG entry, version 0.9.0, `validate_config` tests for the new knob.
