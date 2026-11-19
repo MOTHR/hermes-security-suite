@@ -8,6 +8,7 @@ Spec reference: Privacy-Shield-AI-Act-Architektur-Spec-v1.md Section 3.1
 from __future__ import annotations
 
 import hashlib
+import inspect
 import logging
 import re
 from pathlib import Path
@@ -56,6 +57,16 @@ ALLOWED_RESTORE_CHANNELS: frozenset[str] = frozenset()
 # Sources that are trusted and do NOT leave the local machine → no provider egress.
 VAULT_TOOL_PREFIXES: tuple[str, ...] = ("mcp__obsidian__",)
 
+# Issue #7 (v1.9.4): wenn Redaktion der Reasoning-Felder auf dem Live-Objekt
+# UND die dict-Synthese fehlschlagen, wird der unredigierte Reasoning-Block
+# NICHT durchgereicht — plugin-kontrollierte Oberflächen erhalten diesen
+# Placeholder statt des Raw-Textes.
+REASONING_BLOCKED_PLACEHOLDER = "[reasoning-blocked: redaction_failed]"
+
+# Issue #7: obere Grenze der Session-Block-Registry (purpose limitation:
+# Einträge leben nur bis on_session_end, nie ungebunden im Speicher).
+_REASONING_BLOCK_REGISTRY_LIMIT = 128
+
 
 # ── Graceful-shutdown bookkeeping + JSON logging live in lifecycle.py ─────
 # (Morpheus R5 / FIX-PS-R5-STRUCT: extracted to keep this module focused
@@ -90,6 +101,11 @@ class PrivacyShieldPlugin:
         # llm_request middleware staging slot: sanitized prompt produced by the
         # last pre_llm_call, consumed by the next outgoing request (one slot).
         self._staged_shields: dict[str, dict[str, Any]] = {}
+        # Issue #7 (v1.9.4): Sessions mit fehlgeschlagener Reasoning-Redaktion
+        # (doppeltes Versagen: setattr + dict-Synthese). Für gemerkte
+        # Sessions wird der unredigierte Reasoning-Block in allen
+        # plugin-kontrollierten Oberflächen blockiert, nicht tokenisiert.
+        self._failed_redaction_sessions: dict[str, str] = {}  # session_id -> field
         self._pdf_preprocessor = self._init_attachment_preprocessor("pdf")
         self._image_preprocessor = self._init_attachment_preprocessor("image")
         self._email_preprocessor = self._init_attachment_preprocessor("email")
@@ -1344,6 +1360,7 @@ class PrivacyShieldPlugin:
         """
         if not session_id:
             self._staged_shields = {}
+            self._failed_redaction_sessions.clear()
             return
         purge = getattr(self.mapper, "purge_session", None)
         deleted = (
@@ -1361,6 +1378,8 @@ class PrivacyShieldPlugin:
         # in memory and must never outlive the session
         # (orakel review t_c0a50b6f F-1 lifetime note).
         self._staged_shields = {}
+        # Issue #7: Block-Registry ist session-scoped — Purpose-Limitation.
+        self._failed_redaction_sessions.pop(session_id, None)
         logger.info(
             "Privacy-Shield: session %s ended, removed %d mappings", session_id, deleted
         )
@@ -1401,8 +1420,8 @@ class PrivacyShieldPlugin:
 
         tokenized = 0
         threshold = self.config.reasoning.confidence_threshold
-        fallback_usage: dict[str, str] = {}  # field -> fallback_method
-        bypass_fields: list[tuple[str, str]] = []  # (field, bypass_reason)
+        write_methods: dict[str, str] = {}  # field -> Schreibpfad (setattr/dict-Synthese)
+        failed_fields: list[str] = []  # Issue #7: doppeltes Versagen
 
         # 1) String-Felder am Objekt
         for field in ("reasoning", "reasoning_content"):
@@ -1424,29 +1443,38 @@ class PrivacyShieldPlugin:
                         assistant_message, field, session_id, threshold
                     )
                     if sanitized is not None:
-                        fallback_usage[field] = "model_extra"
+                        write_methods[field] = "model_extra"
                         tokenized += count
                 continue
+            # Issue #7: read-only-Property (qwen via llama.cpp:
+            # NormalizedResponse.reasoning_content ohne fset) VOR dem
+            # Write-Versuch erkennen → dict-Synthese ist PRIMAERPFAD,
+            # statt jeden Turn setattr-Versuch + Fallback-Event zu
+            # produzieren.
+            readonly = self._is_readonly_property(assistant_message, field)
             sanitized, count = self._tokenize_reasoning(
                 value, session_id=session_id, confidence_threshold=threshold
             )
             if sanitized is not None and sanitized != value:
                 ok, method = self._set_reasoning_field(
-                    assistant_message, field, sanitized, session_id
+                    assistant_message, field, sanitized, session_id, readonly=readonly
                 )
                 if ok:
                     tokenized += count
-                    if method != "setattr":
+                    write_methods[field] = method
+                    if method != "setattr" and not readonly:
+                        # echter, UNERWARTETER Fallback (Smith M-002):
+                        # nur hier bleibt das per-turn fallback-Event;
+                        # erkannte readonly-Shapes laufen als Primärpfad.
                         self._log_fallback_event(
                             field, method, True, session_id, model, platform
                         )
                 else:
-                    bypass_fields.append(
-                        (field, "provider_data_none_and_model_extra_unwritable")
-                    )
-                    logger.warning(
+                    # Issue #7 laut: doppeltes Versagen (attr + dict-Synthese).
+                    failed_fields.append(field)
+                    logger.error(
                         "Privacy-Shield: reasoning redaction for %s completely "
-                        "failed (session=%s)",
+                        "failed — unredacted block blocked (session=%s)",
                         field,
                         session_id,
                     )
@@ -1489,25 +1517,82 @@ class PrivacyShieldPlugin:
                     model=model,
                     platform=platform,
                     source="reasoning_block_pre_intake",
+                    # Issue #7: Schreibpfad-Audit (setattr vs. dict-Synthese
+                    # vs. model_extra) — ersetzt das per-turn Fallback-Event
+                    # fuer erkannte readonly-Shapes.
+                    write_methods=dict(write_methods) if write_methods else None,
                     note=(
                         "Pre-Intake-Redaktion via post_api_request: "
                         "state.db erhaelt nur tokenisierte Reasoning-Texte "
                         "(GB-009 geschlossen)."
                     ),
                 )
-        for field, reason in bypass_fields:
-            self._log_bypass_event(field, reason, session_id, model, platform)
+        for field in failed_fields:
+            self._log_reasoning_redaction_failed(
+                field, session_id, model, platform
+            )
+            self._register_reasoning_redaction_failure(session_id, field)
         return tokenized
 
+    @staticmethod
+    def _is_readonly_property(obj: Any, field: str) -> bool:
+        """Issue #7: read-only-Property-Erkennung ohne Wert-Leseschiene.
+
+        ``getattr_static`` liefert den Klassen-Deskriptor ohne Trigger der
+        ``__get__``-Property; eine ``property`` ohne ``fset`` ist read-only
+        (NormalisedResponse.reasoning_content, qwen via llama.cpp).
+        Datenfelder/Plain-Attribute liefern die Instanz-Attribute selbst
+        (nicht ``property``) → False. Fail-open: bei Erkennungsproblemen
+        False (setattr-Pfad mit geprüfter dict-Synthese bleibt wirksam).
+        """
+        try:
+            descriptor = inspect.getattr_static(obj, field, None)
+            if isinstance(descriptor, property):
+                return descriptor.fset is None
+        except Exception:  # noqa: BLE001 -- fail-open
+            pass
+        return False
+
+    def _register_reasoning_redaction_failure(
+        self, session_id: str, field: str
+    ) -> None:
+        """Issue #7: Session in die Block-Registry aufnehmen (bounded).
+
+        Für gemerkte Sessions blockiert `_redact_reasoning_in_history`
+        unredigierte Reasoning-Blöcke (Placeholder statt Raw-Text).
+        """
+        if len(self._failed_redaction_sessions) >= _REASONING_BLOCK_REGISTRY_LIMIT:
+            oldest = next(iter(self._failed_redaction_sessions))
+            self._failed_redaction_sessions.pop(oldest, None)
+        self._failed_redaction_sessions[session_id] = field
+
+    def reasoning_redaction_blocked(self, session_id: str) -> bool:
+        """Issue #7: True für Sessions mit fehlgeschlagener Redaktion."""
+        return session_id in self._failed_redaction_sessions
+
     def _set_reasoning_field(
-        self, obj: Any, field: str, value: Any, session_id: str
+        self,
+        obj: Any,
+        field: str,
+        value: Any,
+        session_id: str,
+        *,
+        readonly: bool = False,
     ) -> tuple[bool, str]:
         """Setze ein Reasoning-Feld mit Drei-Quellen-Fallback (v1.7.1).
 
         Liefert (success, method): method ist "setattr", "provider_data"
         oder "model_extra" — fuer das Audit-Event (Smith M-002).
 
-        Quelle 1: setattr (Dataclass-Felder wie ``reasoning``).
+        Issue #7 (v1.9.4): fuer erkannte read-only-Properties
+        (``readonly=True``) ist die dict-Synthese (``provider_data``,
+        sonst ``model_extra``) der PRIMAERPFAD; ``setattr`` wird nur noch
+        als Rueckfallebene versucht. Bei nicht-erkannten Shapes gilt die
+        v1.7.1-Reihenfolge: setattr zuerst (Dataclass-Felder wie
+        ``reasoning``), dict-Synthese als Fallback.
+
+        Quelle 1: setattr (Dataclass-Felder wie ``reasoning``) bzw. —
+        bei readonly-Shapes — Rueckfallebene.
         Quelle 2: provider_data dict — NormalizedResponse implementiert
         ``reasoning_content``/``reasoning_details`` als read-only
         Properties über dieses Dict (agent/transports/types.py:80-87);
@@ -1519,6 +1604,14 @@ class PrivacyShieldPlugin:
         provider_data=None wird zu {} initialisiert (Smith C-001),
         Initialisierungs-/Mutations-Fehler sind fail-open mit Warning.
         """
+        if readonly:
+            # Issue #7: dict-Synthese als Primärpfad (kein pro-Turn-
+            # setattr-Versuch, kein per-turn Fallback-Event).
+            ok, method = self._write_dict_sources(
+                obj, field, value, session_id, primary=True
+            )
+            if ok:
+                return True, method
         try:
             setattr(obj, field, value)
             return True, "setattr"
@@ -1530,6 +1623,28 @@ class PrivacyShieldPlugin:
                 field,
                 exc,
             )
+        ok, method = self._write_dict_sources(
+            obj, field, value, session_id, primary=readonly
+        )
+        if ok:
+            return True, method
+        return False, "none"
+
+    def _write_dict_sources(
+        self,
+        obj: Any,
+        field: str,
+        value: Any,
+        session_id: str,
+        *,
+        primary: bool,
+    ) -> tuple[bool, str]:
+        """dict-Synthese: provider_data-Dict, sonst model_extra (v1.7.1).
+
+        ``primary=True`` (erkanntes readonly-Shape, Issue #7): Logging auf
+        Debug-Niveau — dies ist der normale Schreibpfad, kein Fallback.
+        ``primary=False``: Logging wie v1.7.1 (Info, "fallback").
+        """
         pd = getattr(obj, "provider_data", None)
         if pd is None:
             try:
@@ -1543,22 +1658,38 @@ class PrivacyShieldPlugin:
                 )
         if isinstance(pd, dict):
             pd[field] = value
-            logger.info(
-                "Privacy-Shield: reasoning %s redacted via provider_data "
-                "fallback (session=%s)",
-                field,
-                session_id,
-            )
+            if primary:
+                logger.debug(
+                    "Privacy-Shield: reasoning %s written via provider_data "
+                    "(readonly primary path, session=%s)",
+                    field,
+                    session_id,
+                )
+            else:
+                logger.info(
+                    "Privacy-Shield: reasoning %s redacted via provider_data "
+                    "fallback (session=%s)",
+                    field,
+                    session_id,
+                )
             return True, "provider_data_dict"
         me = getattr(obj, "model_extra", None)
         if isinstance(me, dict):
             me[field] = value
-            logger.info(
-                "Privacy-Shield: reasoning %s redacted via model_extra "
-                "fallback (session=%s)",
-                field,
-                session_id,
-            )
+            if primary:
+                logger.debug(
+                    "Privacy-Shield: reasoning %s written via model_extra "
+                    "(readonly primary path, session=%s)",
+                    field,
+                    session_id,
+                )
+            else:
+                logger.info(
+                    "Privacy-Shield: reasoning %s redacted via model_extra "
+                    "fallback (session=%s)",
+                    field,
+                    session_id,
+                )
             return True, "model_extra"
         return False, "none"
 
@@ -1624,31 +1755,41 @@ class PrivacyShieldPlugin:
             ),
         )
 
-    def _log_bypass_event(
+    def _log_reasoning_redaction_failed(
         self,
         field: str,
-        reason: str,
         session_id: str,
         model: str,
         platform: str,
     ) -> None:
-        """Audit-Event, wenn ein Feld GAR NICHT redigiert werden konnte.
+        """Issue #7: laut Event bei doppeltem Versagen (attr + dict-Synthese).
 
-        Silent-Failure-Charakter endet hier: der Bypass ist im Audit-Log
-        sichtbar, auch wenn der Turn nicht blockiert wird (fail-open).
+        Ersetzt das v1.7.1-Stil-Event ``reasoning_redaction_bypass``
+        (stiller Bypass): der unredigierte Reasoning-Block wird
+        blockiert, nicht durchgereicht — alle plugin-kontrollierten
+        Oberflächen (conversation_history via post_llm_call) ersetzen
+        den Raw-Text durch REASONING_BLOCKED_PLACEHOLDER. Enthaelt keine
+        Klartext-PII — nur Feldname, Pfade, Outcome.
         """
         if self.audit is None:
             return
         self.audit.log(
-            event="reasoning_redaction_bypass",
+            event="reasoning_redaction_failed",
             session_id=session_id,
-            affected_field=field,
-            bypass_reason=reason,
+            failed_fields=[field],
+            attempted_paths=["setattr", "provider_data", "model_extra"],
+            fallback_success=False,
             mode=self.config.reasoning.mode,
             model=model,
             platform=platform,
             source="reasoning_block_pre_intake",
-            note="Fallback mutation impossible; field left unredacted",
+            note=(
+                "setattr and provider_data/model_extra dict synthesis failed; "
+                "unredacted reasoning block blocked from plugin forwarding "
+                "(Issue #7). Core-side readers (state.db persistence, "
+                "thinking-event) are outside the post_api_request hook's "
+                "notification-only contract."
+            ),
         )
 
     def _redact_reasoning_in_history(
@@ -1699,6 +1840,18 @@ class PrivacyShieldPlugin:
                         continue
                     value = msg.get(field)
                     if not isinstance(value, str) or not value:
+                        continue
+                    if self.reasoning_redaction_blocked(session_id):
+                        # Issue #7: unredigierter Reasoning-Block wird
+                        # BLOCKIERT — Placeholder statt Raw-Text UND
+                        # statt Tokenisierung (kein Restore-Mapping für
+                        # Inhalt, dessen Redaktion fehlschlug).
+                        replacement, blocked_count = self._block_reasoning_value(
+                            value, session_id
+                        )
+                        if replacement is not None and replacement != value:
+                            msg[field] = replacement
+                            pii_tokenized_total += blocked_count
                         continue
                     sanitized, count = self._tokenize_reasoning(
                         value,
@@ -1774,6 +1927,32 @@ class PrivacyShieldPlugin:
                 "möglicher last_reasoning-Leak (session=%s)",
                 session_id,
             )
+
+    def _block_reasoning_value(
+        self, value: str, session_id: str
+    ) -> tuple[str | None, int]:
+        """Issue #7: Block statt Tokenisierung fuer gemerkte Sessions.
+
+        Liefert ``(REASONING_BLOCKED_PLACEHOLDER, PII-Hits)`` wenn der Wert
+        noch unredigiertes, zu redigierendes PII enthaelt — sonst
+        ``(None, 0)``, damit bereits tokenisierte Werte (altere
+        Assistant-Nachrichten) unangetastet bleiben.
+        """
+        try:
+            detected = self.detector.scan(value)
+        except Exception as exc:  # noqa: BLE001 -- fail-open
+            logger.warning(
+                "Privacy-Shield: reasoning scan failed (block path): %s", exc
+            )
+            return None, 0
+        masked_hits, dropped_hits = self._partition_by_confidence(
+            detected, self.config.reasoning.confidence_threshold
+        )
+        if dropped_hits:
+            self._log_dropped_detections(dropped_hits, session_id)
+        if not masked_hits:
+            return None, 0
+        return REASONING_BLOCKED_PLACEHOLDER, len(masked_hits)
 
     def _tokenize_reasoning(
         self,

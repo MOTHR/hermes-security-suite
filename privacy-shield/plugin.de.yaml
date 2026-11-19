@@ -1,5 +1,5 @@
 name: privacy-shield
-version: "1.9.3"
+version: "1.9.4"
 description: >-
   Privacy-Shield — Tokenisiert personenbezogene Daten (PII) in
   LLM-Ausgaben, bevor sie an Cloud-Provider gesendet werden. Modi:

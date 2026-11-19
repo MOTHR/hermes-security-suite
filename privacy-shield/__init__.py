@@ -18,7 +18,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-__version__ = "1.9.3"
+__version__ = "1.9.4"
 
 __plugin_id__ = "privacy-shield"
 
@@ -100,6 +100,20 @@ except ImportError as _exc:
             _fallback_exc,
         )
         PrivacyShieldPlugin = None
+
+
+class _InlineTransformResult(str):
+    """A transform rewrite that carries render metadata without breaking the
+    upstream transform contract (hooks.md: ``transform_llm_output`` — "first
+    non-empty string replaces the response").
+
+    ``transform_is_inline`` marks the rewrite as an in-place substitution
+    of the streamed text (Issue #6): Hermes cores that know the attribute use
+    it to suppress the post-stream reprint, cores that do not simply see a
+    ``str`` and keep the current prefix-extension fast-path behaviour.
+    """
+
+    transform_is_inline = False
 
 
 def register(ctx: Any) -> None:
@@ -261,7 +275,18 @@ def register(ctx: Any) -> None:
         )
         if not restored or restored == response_text:
             return None
-        return restored
+        # Issue #6: a rewrite that replaces text IN the streamed copy (not a
+        # prefix extension) must reach the CLI fast-path as an inline
+        # substitution so it suppresses the duplicate reprint instead of
+        # re-painting the whole response. The flagged object IS a str — the
+        # upstream "first non-empty string wins" contract (hooks.md,
+        # transform category) keeps matching it; cores that do not know the
+        # attribute ignore it harmlessly.
+        if restored.startswith(response_text):
+            return restored  # prefix extension: the CLI suffix fast-path handles it
+        flagged = _InlineTransformResult(restored)
+        flagged.transform_is_inline = True
+        return flagged
 
     ctx.register_hook("transform_llm_output", on_transform_llm_output)
 
@@ -301,6 +326,7 @@ __all__ = [
     "register",
     "TOKEN_FORMAT_REGEX",
     "TOKEN_FORMAT_PATTERN",
+    "_InlineTransformResult",
     "_build_finalize_hook",
 ]
 

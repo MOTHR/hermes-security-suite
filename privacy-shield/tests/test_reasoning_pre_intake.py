@@ -340,7 +340,9 @@ def test_no_regression_reasoning_dataclass_field(plugin) -> None:
 
 
 def test_fallback_audit_event_emitted(plugin) -> None:
-    """Smith M-002: provider_data/model_extra-Fallback erzeugt Audit-Event."""
+    """Smith M-002 (v1.9.4, Issue #7): unerwarteter Fallback (kein
+    readonly-Shape) erzeugt weiterhin reasoning_redaction_fallback;
+    das readonly-Primärpfad-Event steckt in write_methods."""
     msg = _PropertyBackedMsg()
     plugin.redact_reasoning_on_message(
         msg, session_id="t15", model="m", platform="telegram"
@@ -348,7 +350,14 @@ def test_fallback_audit_event_emitted(plugin) -> None:
     events = plugin.audit.read_events()
     names = [e.get("event") for e in events]
     assert "reasoning_redaction_applied" in names
-    assert "reasoning_redaction_fallback" in names
+    # v1.9.4: property-backed Shape wird als Primärpfad erkannt → kein
+    # fallback-Event mehr, stattdessen write_methods im applied-Event
+    assert "reasoning_redaction_fallback" not in names
+    applied = [e for e in events if e.get("event") == "reasoning_redaction_applied"][0]
+    wm = applied.get("write_methods") or {}
+    # "reasoning" (plain attr) via setattr, "reasoning_content" via dict-Synthese
+    assert wm.get("reasoning") == "setattr"
+    assert wm.get("reasoning_content") == "provider_data_dict"
 
 
 def test_codex_content_blocks_untouched(plugin) -> None:
@@ -363,11 +372,195 @@ def test_codex_content_blocks_untouched(plugin) -> None:
 
 
 def test_setattr_fail_logs_warning_and_falls_back(plugin, caplog) -> None:
-    """Seraph D: setattr-Fail wird geloggt UND der Fallback greift."""
+    """Seraph D/Issue #7: readonly-Primärpfad loggt KEINE Warning pro Turn."""
     import logging
     msg = _PropertyBackedMsg()
     with caplog.at_level(logging.WARNING, logger="privacy_shield"):
         count = plugin.redact_reasoning_on_message(msg, session_id="t17")
     assert count > 0
-    # no more "completely failed" bypass warnings
-    assert not any("completely failed" in r.message for r in caplog.records)
+    # Issue #7: the read-only shape is the primary path — no per-turn WARNING
+    # noise (setattr failure is expected for this shape, not a degraded turn).
+    assert not any(r.levelno >= logging.WARNING for r in caplog.records)
+
+
+# ---- v1.9.4: Issue #7 — readonly-Primärpfad + reasoning_redaction_failed ----
+
+
+class _NormalizedResponseSurrogate:
+    """Issue #7 (qwen3.5-4b via llama.cpp): exakt das Core-Shape aus
+    agent/transports/types.py — Dataclass, ``reasoning_content`` als
+    read-only-Property OHNE fset über ``provider_data`` (reguläres
+    Dict-Feld). Setattr auf die Property schlägt in jedem Turn fehl."""
+
+    def __init__(self) -> None:
+        self.content = "Ich helfe gerne weiter."
+        self.provider_data = {"reasoning_content": RAW_REASONING}
+
+    @property
+    def reasoning_content(self):  # noqa: D401
+        """Read-only lens over provider_data (kein fset, wie im Core)."""
+        return (self.provider_data or {}).get("reasoning_content")
+
+
+class _SealedMsg:
+    """Issue #7 Doppelversagen: ``reasoning_content`` UND ``provider_data``
+    als read-only-Properties ohne setter — weder setattr noch dict-Synthese
+    (provider_data ist None und nicht initialisierbar), model_extra fehlt.
+    Kein schreibbarer Pfad."""
+
+    def __init__(self) -> None:
+        self.content = "ok"
+        self._pd = None  # provider_data IS None
+
+    @property
+    def provider_data(self):
+        return self._pd
+
+    @property
+    def reasoning_content(self):
+        return RAW_REASONING
+
+
+class _GuardedMsg:
+    """Unerwarteter setattr-Verweigerer: KEIN readonly-Deskriptor auf
+    Klassen-Ebene (Detection blind), aber ``__setattr__`` verweigert
+    jeden Schreibzugriff — dieser Fall bleibt echter Fallback mit
+    reasoning_redaction_fallback-Event (Smith M-002)."""
+
+    def __init__(self) -> None:
+        object.__setattr__(
+            self, "reasoning_content", RAW_REASONING
+        )
+        object.__setattr__(self, "content", "ok")
+        object.__setattr__(self, "provider_data", {"reasoning_content": RAW_REASONING})
+
+    def __setattr__(self, name, value):
+        raise AttributeError(f"{name} is read-only")
+
+
+def _audit_event_names(plugin: PrivacyShieldPlugin) -> list[str]:
+    if plugin.audit is None:
+        return []
+    return [e.get("event") for e in plugin.audit.read_events()]
+
+
+def test_issue7_readonly_primary_path_provider_data(plugin) -> None:
+    """Issue #7 Ask 1: read-only-Shape → provider_data ist PRIMAERPFAD;
+    kein per-turn reasoning_redaction_fallback-Event mehr."""
+    msg = _NormalizedResponseSurrogate()
+    count = plugin.redact_reasoning_on_message(
+        msg, session_id="t20", model="qwen3.5-4b", platform="cli"
+    )
+    assert count > 0
+    # Property-Lesequelle zeigt den tokenisierten Wert (dict write persistiert)
+    assert "Max Mustermann" not in msg.reasoning_content
+    assert "sk_live_" not in msg.reasoning_content
+    assert TOKEN_RE.search(msg.reasoning_content)
+    names = _audit_event_names(plugin)
+    assert "reasoning_redaction_applied" in names
+    # Primärpfad erzeugt KEIN Fallback-Event mehr
+    assert "reasoning_redaction_fallback" not in names
+    applied = [
+        e for e in plugin.audit.read_events() if e.get("event") == "reasoning_redaction_applied"
+    ][0]
+    assert applied.get("write_methods") == {"reasoning_content": "provider_data_dict"}
+
+
+def test_issue7_readonly_detection() -> None:
+    """Detection: Dataclass-Property ohne fset → True; Instanz-Attribut → False."""
+    assert PrivacyShieldPlugin._is_readonly_property(
+        _NormalizedResponseSurrogate(), "reasoning_content"
+    )
+    assert not PrivacyShieldPlugin._is_readonly_property(
+        _assistant_message(), "reasoning_content"
+    )
+    assert not PrivacyShieldPlugin._is_readonly_property(
+        _assistant_message(), "content"
+    )
+
+
+def test_issue7_double_failure_loud_event(plugin, caplog) -> None:
+    """Issue #7 Ask 2: doppeltes Versagen → reasoning_redaction_failed at
+    ERROR level + Session-Flag; unredigierter Block wird nicht durchgereicht."""
+    import logging
+
+    msg = _SealedMsg()
+    with caplog.at_level(logging.INFO, logger="privacy_shield"):
+        plugin.redact_reasoning_on_message(
+            msg, session_id="t21", model="qwen3.5-4b", platform="cli"
+        )
+    names = _audit_event_names(plugin)
+    assert "reasoning_redaction_failed" in names
+    failed = [e for e in plugin.audit.read_events() if e.get("event") == "reasoning_redaction_failed"][0]
+    assert failed.get("failed_fields") == ["reasoning_content"]
+    # kein Plaintext-PII im Audit-Event
+    assert "Max Mustermann" not in str(failed)
+    # ERROR-Log statt stillem Warning-Bypass
+    assert any(
+        r.levelno == logging.ERROR and "reasoning redaction" in r.message
+        for r in caplog.records
+    )
+    # Session ist gemerkt: Block-Semantik aktiv
+    assert plugin.reasoning_redaction_blocked("t21")
+    assert not plugin.reasoning_redaction_blocked("andere-session")
+    # Objekt unverändert (unredigiert, weil schreibgeschützt)
+    assert "Max Mustermann" in msg.reasoning_content
+
+
+def test_issue7_double_failure_blocks_history_forwarding(plugin) -> None:
+    """Issue #7: gemerkte Session → history-Reasoning wird als BLOCK-Placeholder
+    durchgereicht (weder Raw-PII noch Restore-Token)."""
+    plugin.redact_reasoning_on_message(
+        _SealedMsg(), session_id="t22", model="qwen3.5-4b", platform="cli"
+    )
+    history = [
+        {"role": "assistant", "content": "ok", "reasoning_content": RAW_REASONING},
+    ]
+    plugin.post_llm_call(
+        assistant_response="ok", session_id="t22", conversation_history=history
+    )
+    forwarded = history[0]["reasoning_content"]
+    assert "Max Mustermann" not in forwarded
+    assert not TOKEN_RE.search(forwarded)  # BLOCK, keine Tokenisierung
+    # bereits tokenisierte (aeltere) Assistant-Nachrichten bleiben unangetastet
+    history2 = [
+        {"role": "assistant", "content": "ok", "reasoning": "TOKEN_X"},
+        {"role": "assistant", "content": "ok", "reasoning_content": RAW_REASONING},
+    ]
+    plugin.post_llm_call(
+        assistant_response="ok", session_id="t22", conversation_history=history2
+    )
+    assert history2[0]["reasoning"] == "TOKEN_X"
+    assert history2[1]["reasoning_content"] != RAW_REASONING
+
+
+def test_issue7_unexpected_fallback_keeps_audit_event(plugin) -> None:
+    """Smith M-002 bleibt: unerwarteter Fallback (ohne readonly-Detection)
+    erzeugt weiterhin reasoning_redaction_fallback."""
+    msg = _GuardedMsg()
+    plugin.redact_reasoning_on_message(msg, session_id="t23", model="m", platform="cli")
+    names = _audit_event_names(plugin)
+    assert "reasoning_redaction_fallback" in names
+    fallback = [e for e in plugin.audit.read_events() if e.get("event") == "reasoning_redaction_fallback"][0]
+    assert fallback.get("fallback_method") == "provider_data_dict"
+    # der redigierte Wert liegt im provider_data-Dict
+    assert TOKEN_RE.search(msg.provider_data["reasoning_content"])
+
+
+def test_issue7_session_end_purges_block_registry(tmp_path: Path) -> None:
+    """Block-Registry ist session-scoped (Purpose-Limitation): session_end purged."""
+    config = PrivacyShieldConfig(
+        enabled=True,
+        mode="limited",
+        encryption_key="test-key-32-bytes-xxxxxxxxxxxxx",
+        storage_mode="memory",
+        audit_jsonl_path=str(tmp_path / "audit.jsonl"),
+        reasoning=ReasoningBlockConfig(mode="restore", confidence_threshold=0.85),
+    )
+    plugin = PrivacyShieldPlugin(config=config)
+    plugin.redact_reasoning_on_message(
+        _SealedMsg(), session_id="t24", model="qwen3.5-4b", platform="cli"
+    )
+    assert plugin.reasoning_redaction_blocked("t24")
+    plugin.on_session_end("t24")
+    assert not plugin.reasoning_redaction_blocked("t24")

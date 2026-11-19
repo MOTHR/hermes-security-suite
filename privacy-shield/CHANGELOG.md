@@ -1,11 +1,67 @@
 ## [Unreleased]
 
+- **fix(Issue #5) — BIC-Detektor False-Positives**: der BIC/SWIFT-Detektor
+  validiert Kandidaten jetzt nach ISO 9362: strikt 8 oder 11 Zeichen,
+  ISO-3166-1-alpha-2-Ländercode an Position 5-6, kuratierte Wort-Ausschluss-
+  liste für gewöhnliche Uppercase-Wörter (83%-FP-Baseline aus dem Issue) und
+  optional konfigurierbare Kontext-Cues (`bic_context_cues` /
+  `bic_cue_window`, Default: aus). Der Gate greift auf beiden Emissionstypen
+  (`bic` und `swift_code`).
+- **fix(Issue #5) — Delegated-Transit-Korruption**: der Delegations-Kanal
+  (`platform="subagent"`, von delegate_tool gesetzt) ist jetzt verlässlicher
+  Restore-Kanal (`DELEGATED_TRANSIT_CHANNELS` + Bare-Default in
+  `restore_allowed_channels`). Restore-Misses im Transit sind verlustfrei:
+  Token bleibt verbatim statt des destruktiven Restore-Miss-Platzhalters.
+  User-facing-Kanäle und Egress-Kanäle unverändert.
+
 - **Asymmetrie-Statement (Secret-Routen, bewusst)**: injection-shield behielt
   für den Alert-Pfad einen eigenen Env-Token-Fallback (opt-in Telegram-Token
   eines Drittdienstes, funktioniert auch Hermes-frei); privacy-shield
   entfernte die Key-Env-Route komplett (Review F1). Die Secret-Klassen sind
   unterschiedlich sensibel und werden bewusst unterschiedlich behandelt —
   nicht symmetrisches Verhalten zwischen beiden Plugins erwarten.
+
+## [1.9.4] - 2026-11-19
+
+### Issue #7: Reasoning-Redaktion — readonly-Fall als Primärpfad + lauter Doppelversagen-Pfad
+
+- **Read-only-Property ist PRIMÄRPFAD** (Issue #7, Ask 1): bei erkannten
+  read-only-Properties (qwen via llama.cpp:
+  `NormalizedResponse.reasoning_content` ist eine Property ohne `fset`
+  über `provider_data`, agent/transports/types.py:80-87) schreibt die
+  dict-Synthese (`provider_data`, sonst `model_extra`) als Primärpfad;
+  `setattr` wird nur noch als Rückfallebene versucht. Ergebnis: kein
+  pro-Turn setattr-Miss, kein pro-Turn `reasoning_redaction_fallback`-
+  Event, keine WARNING mehr für dieses erwartete Shape (Debug-Niveau).
+- **Schreibpfad-Audit**: das `reasoning_redaction_applied`-Event führt
+  neu `write_methods` (field → `setattr` / `provider_data_dict` /
+  `model_extra`); das per-Turn `reasoning_redaction_fallback`-Event
+  (Smith M-002) bleibt nur für UNERWARTETE Fallbacks (nicht-readonly-
+  erkannte Shapes, z.B. `__setattr__`-verweigernde SDK-Objekte).
+- **Doppelversagen ist laut** (Issue #7, Ask 2): schlägt sowohl der
+  Attribut-Write als auch jede dict-Synthese fehl, erzeugt Privacy-Shield
+  das Audit-Event `reasoning_redaction_failed` (ersetzt
+  `reasoning_redaction_bypass`) plus ERROR-Log; keine Credentials/
+  Klartext-PII in Event oder Log.
+- **Block statt Bypass**: für so gemerkte Sessions (bounded Registry,
+  purge bei Session-Ende) ersetzt `post_llm_call`/conversation_history
+  unredigierte Reasoning-Texte durch den
+  `REASONING_BLOCKED_PLACEHOLDER` = `[reasoning-blocked: redaction_failed]`
+  statt zu tokenisieren — weder Raw-PII noch Restore-Token werden
+  durchgereicht, das Restore-Mapping bleibt für erfolgreich redigierte
+  Inhalte unberührt.
+- **Grenze (plugin-only, dokumentiert)**: der `post_api_request`-Hook hat
+  keinen Veto-Vertrag (reine Notifications, Core-Callsite
+  `agent/turn_response_intake.py:_fire_post_api_request_hook`,
+  `invoke_hook` in `hermes_cli/lifecycle.py`); Core-seitige Leser des
+  unredigierten Blocks (state.db-Persist-Zeile, Desktop-thinking-Event)
+  sind aus der Plugin-Sphäre nicht abzuschneiden. Der laute
+  `reasoning_redaction_failed`-Event ist hierfür der vorgesehene
+  Monitoring-Anker.
+- Neue Testsuite: qwen/llama.cpp-readonly-Simulation (exaktes
+  NormalizedResponse-Surrogat), Doppelversagen (sealed object),
+  unerwarteter Fallback (guarded object), Block-Weiterleitung,
+  Registry-Purge (6 Issue-#7-Tests in test_reasoning_pre_intake.py).
 
 ## [1.9.3] - 2026-11-11
 
