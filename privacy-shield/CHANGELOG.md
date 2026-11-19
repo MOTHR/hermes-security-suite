@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+- **fix(Issue #6) — Doppel-Ausgabe im restore-Modus (`transform_is_inline`)**:
+  die `transform_llm_output`-Rewrite gibt bei Inline-Substitution (Token-Restore
+  mitten im Text, kein Prefix-Extension-Fall) zusätzlich das Signal
+  `transform_is_inline=True` zurück — ein `str`-Subclass, der den
+  Upstream-Transform-Contract („first non-empty string wins", hooks.md) nicht
+  bricht. Ältere Cores ignorieren das Attribut harmlos (Verhalten unverändert);
+  Cores mit Issue-6-Kern-Patch unterdrücken damit den doppelten Reprint der
+  bereits gestreamten Kopie im CLI. Kein Version-Bump vor Review.
+
 - **fix(Issue #5) — BIC-Detektor False-Positives**: der BIC/SWIFT-Detektor
   validiert Kandidaten jetzt nach ISO 9362: strikt 8 oder 11 Zeichen,
   ISO-3166-1-alpha-2-Ländercode an Position 5-6, kuratierte Wort-Ausschluss-
