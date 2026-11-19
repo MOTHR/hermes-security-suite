@@ -7,7 +7,7 @@
   Upstream-Transform-Contract („first non-empty string wins", hooks.md) nicht
   bricht. Ältere Cores ignorieren das Attribut harmlos (Verhalten unverändert);
   Cores mit Issue-6-Kern-Patch unterdrücken damit den doppelten Reprint der
-  bereits gestreamten Kopie im CLI. Kein Version-Bump vor Review.
+  bereits gestreamten Kopie im CLI.
 
 - **fix(Issue #5) — BIC-Detektor False-Positives**: der BIC/SWIFT-Detektor
   validiert Kandidaten jetzt nach ISO 9362: strikt 8 oder 11 Zeichen,

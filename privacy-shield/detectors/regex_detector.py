@@ -754,6 +754,104 @@ _BIC_RE = re.compile(
     r'\b[A-Z]{4}[A-Z]{2}[A-Z0-9]{2}([A-Z0-9]{3})?\b'
 )
 
+# Issue #5 fix: ISO 9362 sanity checks for _BIC_RE candidates. The bare
+# regex accepted every 8/11-char uppercase token (83% false positives in
+# the reported session). Fixes: (a) strict 8/11 length via _BIC_RE word
+# boundaries (re-checked defensively below), (b) positions 5-6 must be an
+# ISO 3166-1 alpha-2 code, (c) optional operator-configurable context cues.
+# Code set: officially assigned ISO 3166-1 alpha-2 codes plus the
+# exceptionally reserved "XK", used for Kosovo in the SWIFT/SEPA registries.
+_BIC_COUNTRY_CODES = frozenset({
+    "AD", "AE", "AF", "AG", "AI", "AL", "AM", "AO", "AQ", "AR", "AS", "AT",
+    "AU", "AW", "AX", "AZ",
+    "BA", "BB", "BD", "BE", "BF", "BG", "BH", "BI", "BJ", "BL", "BM", "BN",
+    "BO", "BQ", "BR", "BS", "BT", "BV", "BW", "BY", "BZ",
+    "CA", "CC", "CD", "CF", "CG", "CH", "CI", "CK", "CL", "CM", "CN", "CO",
+    "CR", "CU", "CV", "CW", "CX", "CY", "CZ",
+    "DE", "DJ", "DK", "DM", "DO", "DZ",
+    "EC", "EE", "EG", "EH", "ER", "ES", "ET",
+    "FI", "FJ", "FK", "FM", "FO", "FR",
+    "GA", "GB", "GD", "GE", "GF", "GG", "GH", "GI", "GL", "GM", "GN", "GP",
+    "GQ", "GR", "GS", "GT", "GU", "GW", "GY",
+    "HK", "HM", "HN", "HR", "HT", "HU",
+    "ID", "IE", "IL", "IM", "IN", "IO", "IQ", "IR", "IS", "IT",
+    "JE", "JM", "JO", "JP",
+    "KE", "KG", "KH", "KI", "KM", "KN", "KP", "KR", "KW", "KY", "KZ",
+    "LA", "LB", "LC", "LI", "LK", "LR", "LS", "LT", "LU", "LV", "LY",
+    "MA", "MC", "MD", "ME", "MF", "MG", "MH", "MK", "ML", "MM", "MN", "MO",
+    "MP", "MQ", "MR", "MS", "MT", "MU", "MV", "MW", "MX", "MY", "MZ",
+    "NA", "NC", "NE", "NF", "NG", "NI", "NL", "NO", "NP", "NR", "NU", "NZ",
+    "OM",
+    "PA", "PE", "PF", "PG", "PH", "PK", "PL", "PM", "PN", "PR", "PS", "PT",
+    "PW", "PY",
+    "QA",
+    "RE", "RO", "RS", "RU", "RW",
+    "SA", "SB", "SC", "SD", "SE", "SG", "SH", "SI", "SJ", "SK", "SL", "SM",
+    "SN", "SO", "SR", "SS", "ST", "SV", "SX", "SY", "SZ",
+    "TC", "TD", "TF", "TG", "TH", "TJ", "TK", "TL", "TM", "TN", "TO", "TR",
+    "TT", "TV", "TW", "TZ",
+    "UA", "UG", "UM", "US", "UY", "UZ",
+    "VA", "VC", "VE", "VG", "VI", "VN", "VU",
+    "WF", "WS",
+    "XK",
+    "YE", "YT",
+    "ZA", "ZM", "ZW",
+})
+
+
+# Issue #5 third lever: common ordinary words that survive the country-code
+# check because letters 5-6 coincidentally form a valid ISO 3166 pair
+# (SHUTDOWN→"DO", DATABASE→"BA", CONTINUE→"IN", PLATFORM→"TF",
+# SETTINGS→"TT"). A candidate that IS a known common word is treated as
+# below the confidence threshold and never masked (Issue #5 suggestion 3).
+# All 12 words named in the issue are included as regression insurance even
+# where the country check already rejects them.
+_BIC_COMMON_WORDS = frozenset({
+    # Explicit Issue #5 baseline + transit evidence
+    "WORKFLOW", "SHUTDOWN", "PASSWORD", "REVIEWER", "DOWNLOAD", "CATEGORY",
+    "RESPONSE", "COMPLETE",
+    # 8-letter common words whose positions 5-6 form a real country code
+    "DATABASE", "CONTINUE", "PLATFORM", "SETTINGS", "DISASTER", "INSTANCE",
+    "UPGRADES", "REVISION", "BACKBONE", "CONCRETE", "MANAGING", "TRAINING",
+    "THINKING", "REQUESTS", "SESSIONS", "MESSAGES", "CHANNELS", "RECOVERY",
+    "OVERVIEW",
+    # 11-letter common words (strict 8/11 shape makes them rarer but real)
+    "DELEGATIONS", "INTEGRATION", "MAINTENANCE", "PROCESSINGS",
+})
+
+
+def _is_valid_bic_token(value: str) -> bool:
+    """ISO 9362 sanity check for a ``_BIC_RE`` candidate.
+
+    Strict 8- or 11-character length (defensive re-check; ``_BIC_RE`` word
+    boundaries already enforce it) plus a registered ISO 3166-1 alpha-2
+    country code at positions 5-6. Rejects ordinary uppercase words such
+    as ``WORKFLOW`` (``LO`` is not a country) while keeping real BICs like
+    ``DEUTDEFF``.
+    """
+    if len(value) not in (8, 11):
+        return False
+    if value in _BIC_COMMON_WORDS:
+        return False
+    return value[4:6] in _BIC_COUNTRY_CODES
+
+
+def _bic_context_cue_present(
+    text: str,
+    start: int,
+    end: int,
+    cues: tuple[str, ...],
+    window: int,
+) -> bool:
+    """Issue #5 fix (c): does a context cue (SWIFT/BIC/IBAN, …) appear near
+    the candidate match? Case-insensitive whole-word search within a
+    symmetric character window around the match."""
+    region = text[max(0, start - window):end + window]
+    for cue in cues:
+        if re.search(r'(?i)\b%s\b' % re.escape(cue), region):
+            return True
+    return False
+
 # Credit Card: 13-19 digits, optionally grouped with spaces or dashes.
 # ReDoS-hardened: rough non-backtracking pre-filter, exact non-backtracking
 # final pattern, then Luhn validation.  The old `_CC_RE` / `_CC_CANDIDATE_RE`
@@ -991,7 +1089,12 @@ class RegexPIIDetector:
         "heroku_api_key",
     })
 
-    def __init__(self, code_context_penalty: float = 1.0):
+    def __init__(
+        self,
+        code_context_penalty: float = 1.0,
+        bic_context_cues: tuple[str, ...] = (),
+        bic_cue_window: int = 80,
+    ):
         # Build pattern list in priority order: most specific first.
         # Phase 1 base patterns — deterministic regexes, confidence 1.0.
         base: list[tuple[str, re.Pattern[str]]] = [
@@ -1043,6 +1146,10 @@ class RegexPIIDetector:
         # value is supplied.  The plugin constructs the detector with the
         # value from ``PrivacyShieldConfig.code_context_penalty`` (0.6).
         self.code_context_penalty = float(code_context_penalty)
+        # Issue #5 fix (c): BIC context cues (see PrivacyShieldConfig).
+        # Stored uppercased; the cue search itself is case-insensitive.
+        self.bic_context_cues = tuple(str(c).upper() for c in bic_context_cues)
+        self.bic_cue_window = max(1, int(bic_cue_window))
 
     def scan(self, text: str) -> list[PIIMatch]:
         """Scan text for PII patterns.
@@ -1206,6 +1313,21 @@ class RegexPIIDetector:
                 # IBAN: apply ISO 13616 mod-97 check, skip invalid
                 if pii_type == "iban":
                     if not _mod97_check(value):
+                        continue
+                # BIC / SWIFT code (Issue #5): ISO 9362 sanity checks —
+                # strict 8/11 length, registered ISO 3166-1 alpha-2 country
+                # code at positions 5-6, optional operator-configured
+                # context cues. Applies to BOTH emitted types: the base
+                # "bic" pattern (regex_detector) and the extended
+                # "swift_code" pattern (extended_patterns, used e.g. freshly
+                # by the output sanitizer) share the same loose regex.
+                if pii_type in ("bic", "swift_code"):
+                    if not _is_valid_bic_token(value):
+                        continue
+                    if self.bic_context_cues and not _bic_context_cue_present(
+                        normalized_text, value_start, value_end,
+                        self.bic_context_cues, self.bic_cue_window,
+                    ):
                         continue
                 # Phone (FP-hardened 2026-09-20): structural validation for
                 # separated matches; unseparated patterns are anchored and

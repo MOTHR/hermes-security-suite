@@ -54,6 +54,16 @@ logger = logging.getLogger(__name__)
 # compatibility with tests that import this constant directly.
 ALLOWED_RESTORE_CHANNELS: frozenset[str] = frozenset()
 
+# Issue #5 (delegated transit): channels over which delegate subagent
+# results travel back to the parent agent. The gateway stamps these
+# deliveries with platform="subagent" (hermes-agent tools/delegate_tool.py).
+# This is internal agent-to-agent transport — the parent is the trust
+# boundary — so restoration must run there and restore misses must stay
+# LOSSLESS: a token the mapping cannot resolve is kept verbatim, never
+# replaced by the destructive restore-miss placeholder (that placeholder
+# destroyed "line 117" and role labels in the reported incident).
+DELEGATED_TRANSIT_CHANNELS: frozenset[str] = frozenset({"subagent"})
+
 # Sources that are trusted and do NOT leave the local machine → no provider egress.
 VAULT_TOOL_PREFIXES: tuple[str, ...] = ("mcp__obsidian__",)
 
@@ -88,7 +98,9 @@ class PrivacyShieldPlugin:
         self.config = config or load_config()
         # FIX-1E: thread the code-context penalty from config into the detector.
         self.detector = RegexPIIDetector(
-            code_context_penalty=self.config.code_context_penalty
+            code_context_penalty=self.config.code_context_penalty,
+            bic_context_cues=self.config.bic_context_cues,
+            bic_cue_window=self.config.bic_cue_window,
         )
         # FIX-PS4 / MORPH-PS-1: modernised DetectorChain (fail-separate + overlap resolution).
         self.detector_chain = build_default_chain()
@@ -1186,7 +1198,14 @@ class PrivacyShieldPlugin:
         allowed = tuple(self.config.restore_allowed_channels) + tuple(
             ALLOWED_RESTORE_CHANNELS
         )
-        if not self._channel_allowed(target_channel, allowed):
+        # Issue #5: delegation transit (platform 'subagent') is internal
+        # agent-to-agent transport — restoration MUST run there even when
+        # the operator allowlist does not name it. Never egress-relevant
+        # (no user delivery), hence treated like the kanban bare default.
+        is_delegation_transit = self._channel_allowed(
+            target_channel, tuple(DELEGATED_TRANSIT_CHANNELS)
+        )
+        if not self._channel_allowed(target_channel, allowed) and not is_delegation_transit:
             logger.info(
                 "Privacy-Shield: restoration skipped for channel %s (allowed=%s)",
                 target_channel,
@@ -1201,7 +1220,13 @@ class PrivacyShieldPlugin:
         # tokens stay exactly as the sanitizer left them; no placeholder
         # substitution happens there (egress + fresh-PII behaviour intact).
         restored = self._resolve_residual_tokens(
-            restored, session_id=session_id, fresh_tokens=fresh_tokens
+            restored,
+            session_id=session_id,
+            fresh_tokens=fresh_tokens,
+            # Issue #5: on delegation transit a restore miss must stay
+            # lossless — the token is kept verbatim instead of being
+            # replaced by the destructive placeholder.
+            keep_unresolved=is_delegation_transit,
         )
 
         if restored != sanitized:
@@ -1243,6 +1268,7 @@ class PrivacyShieldPlugin:
         text: str,
         session_id: str = "",
         fresh_tokens: set[str] | None = None,
+        keep_unresolved: bool = False,
     ) -> str:
         """v1.7.6 residual pass: splice repair or restore-miss placeholder.
 
@@ -1264,6 +1290,12 @@ class PrivacyShieldPlugin:
           ``record_restore_miss`` and logs a PII-free WARNING line
           (session truncated, type, serial — no token string, no
           plaintext original).
+
+        Issue #5: ``keep_unresolved=True`` (delegation transit channels)
+        forces the lossless behaviour for EVERY miss — the token is kept
+        verbatim instead of the placeholder, because destroying transit
+        content silently corrupts the parent agent's input (role labels,
+        cited line numbers). The miss is still counted and logged.
         """
         if not text:
             return text
@@ -1275,7 +1307,9 @@ class PrivacyShieldPlugin:
 
         strategy = self.config.restore_miss_strategy
         placeholder = self.config.restore_miss_placeholder
-        skip_placeholder = strategy != "placeholder" or not placeholder
+        skip_placeholder = (
+            strategy != "placeholder" or not placeholder or keep_unresolved
+        )
         resolver = getattr(self.mapper, "resolve_fuzzy_token", None)
 
         out: list[str] = []

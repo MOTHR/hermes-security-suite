@@ -109,6 +109,15 @@ def _default_restore_channels() -> tuple[str, ...]:
     # may go to logs/webhooks/files, not (only) to the user.
     bare: list[str] = ["telegram", "desktop", "cli", "kanban"]
 
+    # Issue #5 (delegated transit): 'subagent' — the gateway stamps delegate
+    # subagent results with platform="subagent" (hermes-agent
+    # tools/delegate_tool.py). The result travels ONLY back to the parent
+    # agent (internal agent-to-agent transport, trust boundary = parent),
+    # so — like the kanban channel (v1.7.6 Decision 3) — restoration is a
+    # bare default here. The chat-ID allowlist / tool egress controls stay
+    # untouched.
+    bare.append("subagent")
+
     chat_id = os.environ.get("PRIVACY_SHIELD_RESTORE_CHAT_ID")
     if not chat_id:
         # Same launchd PATH robustness as _load_key_from_pass below.
@@ -326,6 +335,15 @@ class PrivacyShieldConfig:
     # adjustment; 0.6 is the validated default that keeps all 369 legacy tests
     # green while preventing the new 50-snippet FP suite from triggering.
     code_context_penalty: float = 0.6
+
+    # Issue #5 fix (c): BIC context cues.  Empty tuple (default) disables the
+    # cue gate — strict length + ISO 3166 country validation (fixes (a)/(b))
+    # already remove the ordinary-uppercase-word false positives.  Operators
+    # who want belt-and-braces behaviour set cues such as ("BIC", "SWIFT",
+    # "IBAN"); each cue must then appear within ``bic_cue_window`` characters
+    # of a candidate match (case-insensitive) or the match is dropped.
+    bic_context_cues: tuple[str, ...] = ()
+    bic_cue_window: int = 80
 
 
 def _resolve_pass_binary() -> str | None:
@@ -603,6 +621,7 @@ def _coerce_field_value(field_name: str, raw: Any) -> Any:
         "restore_allowed_channels",
         "vault_tool_prefixes",
         "risky_tool_names",
+        "bic_context_cues",
     ):
         if isinstance(raw, (list, tuple)):
             return tuple(str(x) for x in raw)
