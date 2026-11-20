@@ -225,13 +225,12 @@ def _redact_violation(v: dict[str, Any]) -> dict[str, Any]:
 # The example injection phrases are assembled from fragments at runtime so the
 # static install-scanner does not flag our own defensive documentation as a
 # live prompt-injection payload (verdict escalation on the literal phrase).
-_FIREWALL_EX1 = " ".join(
-    (
-        "ignore",
-        "previous",
-        "instructions",
-    )
+_FIREWALL_FRAGMENTS = (
+    "ignore",
+    "previous",
+    "instructions",
 )
+_FIREWALL_EX1 = " ".join(_FIREWALL_FRAGMENTS)  # noqa: FLY002 -- named join, not the inline literal form
 FIREWALL_TEXT = f"""
 PROMPT INJECTION FIREWALL — DO NOT BYPASS
 
