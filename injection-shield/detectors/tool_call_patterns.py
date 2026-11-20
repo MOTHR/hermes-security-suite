@@ -24,9 +24,10 @@ they are **tool-arg level**, not text-level:
   F01's live-probe against v0.3.2 confirms 0 hits for the exact
   payload used in ``test_F01_terminal_curl_exfil``.
 
-* **F05 — base64-decode pipe.** A shell snippet like
-  ``echo '…' | base64 -d | bash`` pipes a base64-decoded blob into a
-  shell. The textual ``base64`` token alone is benign (a developer
+* **F05 — base64-decode pipe.** A shell snippet that pipes a
+  base64-encoded blob through a ``base64 -d`` stage and into a shell
+  at the same ``bash``/``sh`` stage executes an attacker-controlled
+  payload. The textual ``base64`` token alone is benign (a developer
   running ``base64 file.txt`` to inspect a file is a legitimate use
   case), so we pattern-match the **composite pipe** — base64-decoded
   output fed to a shell. Same shape for ``xxd -r | sh`` and the

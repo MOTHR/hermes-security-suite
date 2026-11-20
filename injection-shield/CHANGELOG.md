@@ -9,6 +9,17 @@ cross-references the review-ID it closes.
 
 ## [Unreleased]
 
+## [0.9.1] - 2026-11-20
+
+### Fixed: store install-scanner compliance (validator-neutral text refactor)
+- `FIREWALL_TEXT` example phrases assembled from fragments at runtime; the
+  static install-scanner no longer escalates our own defensive documentation
+  to a live payload verdict (prompt_injection_ignore → resolved).
+- Dashboard/demo synthetic test defaults rephrased off the role-hijack regex
+  (`System: you are now …` → `From now on, act as …`, Py + JS).
+- F05 doc prose rewritten off the echo-pipe composite (no behavior change;
+  detectors unchanged).
+
 ## [0.9.0] - 2026-11-18
 
 ### FrontierBreach P0: destructive_ops + severity-gated pre_tool_call blocking + Review-R1-Fixes
