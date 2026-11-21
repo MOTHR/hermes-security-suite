@@ -27,6 +27,7 @@ import pytest
 
 from _ps_test_isolation import PS_TEST_SINK_ENV, fake_home_env
 
+from privacy_shield.audit import AuditLogger
 from privacy_shield.config import PrivacyShieldConfig, load_config
 from privacy_shield.log_utils import warn_sink_outside_hermes_home
 from privacy_shield.plugin import PrivacyShieldPlugin
@@ -205,3 +206,55 @@ class TestPluginInitWarnGuardIntegration:
 
         assert caplog.text == ""
         assert plugin is not None
+
+
+class TestAuditLoggerFallback:
+    """Wave-2 F1 (seraph t_af81f106): AuditLogger's no-arg fallback.
+
+    dashboard/plugin_api.py calls ``AuditLogger()`` without a path. The
+    fallback must resolve under ``$HERMES_HOME`` like ``load_config``'s
+    audit_jsonl_path default — never the legacy ``profiles/default`` claim
+    (Issue #9 single-identity contract).
+    """
+
+    def test_no_arg_fallback_under_set_hermes_home(self, monkeypatch, tmp_path):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        logger_ = AuditLogger()
+
+        assert logger_.log_path == hermes_home / "privacy-shield-audit.jsonl"
+
+    def test_no_arg_fallback_home_when_hermes_home_unset(
+        self, monkeypatch, tmp_path
+    ):
+        home = tmp_path / "home"
+        (home / ".hermes").mkdir(parents=True)
+        monkeypatch.setenv("HOME", str(home))
+        monkeypatch.delenv("HERMES_HOME", raising=False)
+
+        logger_ = AuditLogger()
+
+        assert logger_.log_path == home / ".hermes" / "privacy-shield-audit.jsonl"
+
+    def test_explicit_log_path_wins_over_fallback(self, monkeypatch, tmp_path):
+        pinned = tmp_path / "pinned.jsonl"
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+
+        logger_ = AuditLogger(pinned)
+
+        assert logger_.log_path == tmp_path / "pinned.jsonl"
+
+    def test_noarg_fallback_matches_load_config_default(self, monkeypatch, tmp_path):
+        hermes_home = tmp_path / "hermes"
+        hermes_home.mkdir()
+        monkeypatch.setenv("HERMES_HOME", str(hermes_home))
+        _clear_audit_pins(monkeypatch)
+
+        cfg = load_config()
+
+        assert AuditLogger().log_path == Path(cfg.audit_jsonl_path)
+        assert "profiles/default" not in str(AuditLogger().log_path)

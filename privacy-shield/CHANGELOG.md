@@ -37,6 +37,13 @@
   jedes Sink außerhalb `$HERMES_HOME` lautstark. Desktop-Controls- und
   Dashboard-Defaults (`plugin.yaml`, `dashboard/plugin_api.py`,
   `rotating_log.DEFAULT_LOG_PATH`) spiegeln den neuen Root.
+- **Wave-2-Review-Schuss (seraph F1)**: der no-arg-Fallback von
+  `AuditLogger.__init__` (aufgerufen von `dashboard/plugin_api.py`) schrieb
+  noch ins Legacy-`profiles/default/workspace` — stille Audit-Bifurkation
+  neben dem config-pinning-Ziel. Fallback löst jetzt identisch unter
+  `$HERMES_HOME` (`HERMES_HOME` unset → `~/.hermes/`); explizite Pfade
+  gewinnen wie gehabt. Regressionstests in `test_issue9_log_defaults.py`
+  (`TestAuditLoggerFallback`).
 
 ## [1.9.6] - 2026-11-21
 
