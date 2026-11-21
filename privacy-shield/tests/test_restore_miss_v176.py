@@ -39,6 +39,7 @@ from privacy_shield.config import (
     _default_restore_channels,
     validate_config,
 )
+from _ps_test_isolation import set_direct_config_sinks
 from privacy_shield.mapping_table import MappingTable
 from privacy_shield.metrics import get_metrics, reset_metrics
 from privacy_shield.plugin import PrivacyShieldPlugin
@@ -59,6 +60,8 @@ def _make_plugin(**overrides) -> PrivacyShieldPlugin:
         restore_allowed_channels=("kanban",),
         **overrides,
     )
+    # Issue #8: direct-config is env-blind — sinks must be deliberate.
+    set_direct_config_sinks(config, "issue8-restore-miss")
     return PrivacyShieldPlugin(config=config)
 
 
@@ -392,6 +395,8 @@ class TestLegacyRowsSqlite:
             storage_path=str(tmp_path / "mapping.db"),
             restore_allowed_channels=("kanban",),
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(config, "issue8-legacy-sqlite")
         return PrivacyShieldPlugin(config=config)
 
     def _seed(self, plugin, session_id):

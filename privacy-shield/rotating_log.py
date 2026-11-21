@@ -145,6 +145,21 @@ def attach_rotating_handler(
     resolved = _resolve_log_path(log_path)
     ps_logger = logging.getLogger(_LOGGER_NAME)
 
+    # Issue #8 / orakel R2 Layer-2: in-package fail-closed guard. When the
+    # test conftest publishes PRIVACY_SHIELD_TEST_SINK_BASE, only sinks
+    # under that pytest-tmp base may attach to the operator log — any
+    # other path raises instead of silently attaching (or re-freezing via
+    # the idempotency check below) at a production-style default path.
+    sink_base = os.environ.get("PRIVACY_SHIELD_TEST_SINK_BASE")
+    if sink_base:
+        resolved_abs = resolved.resolve()
+        if Path(sink_base).resolve() not in resolved_abs.parents:
+            raise RuntimeError(
+                "Privacy-Shield test isolation (Issue #8): refusing to attach "
+                f"the rotating operator log outside the pytest sink base: "
+                f"{resolved_abs}"
+            )
+
     # Idempotency: skip if a RotatingFileHandler is already attached.
     for existing in ps_logger.handlers:
         if isinstance(existing, logging.handlers.RotatingFileHandler):

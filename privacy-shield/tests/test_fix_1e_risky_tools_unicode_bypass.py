@@ -28,6 +28,7 @@ import re
 import pytest
 
 from privacy_shield.config import PrivacyShieldConfig
+from _ps_test_isolation import set_direct_config_sinks
 from privacy_shield.detectors.regex_detector import (
     RegexPIIDetector,
     _apply_code_penalty,
@@ -82,6 +83,8 @@ class TestRiskyToolRouting:
             risky_tool_force_shield=force_shield,
             encryption_key="x" * 64,
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(cfg, "issue8-fix-1e-routing")
         return PrivacyShieldPlugin(config=cfg)
 
     def test_is_risky_tool_recognizes_known_tools(self):
@@ -400,6 +403,8 @@ class TestCodeContextPenalty:
             confidence_threshold=0.8,
             encryption_key="x" * 64,
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(cfg, "issue8-fix-1e-threshold")
         plugin = PrivacyShieldPlugin(config=cfg)
         prompt = (
             "Here's my fixture:\n"
@@ -437,6 +442,8 @@ class TestFalsePositiveSnippetSuite:
             code_context_penalty=0.6,
             encryption_key="x" * 64,
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(cfg, "issue8-fix-1e-fp-suite")
         return PrivacyShieldPlugin(config=cfg)
 
     def _check_no_auto_mask(self, plugin, text: str, *, label: str):
@@ -608,6 +615,8 @@ class TestIntegration:
             code_context_penalty=0.6,
             encryption_key="x" * 64,
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(cfg, "issue8-fix-1e-integration")
         plugin = PrivacyShieldPlugin(config=cfg)
         # Plain prose coming through web_extract: not in a code fence, so
         # full confidence and the email IS replaced.
@@ -630,6 +639,8 @@ class TestIntegration:
             code_context_penalty=0.6,
             encryption_key="x" * 64,
         )
+        # Issue #8: direct-config is env-blind — sinks must be deliberate.
+        set_direct_config_sinks(cfg, "issue8-fix-1e-integration")
         plugin = PrivacyShieldPlugin(config=cfg)
         # Inside a code fence + through a risky tool: code-context penalty
         # down-scores the match so it is NOT auto-masked at threshold 0.8.
