@@ -16,6 +16,7 @@ import base64
 import pytest
 
 from privacy_shield.config import PrivacyShieldConfig, ReasoningBlockConfig
+from _ps_test_isolation import set_direct_config_sinks
 from privacy_shield.plugin import PrivacyShieldPlugin
 
 
@@ -23,17 +24,21 @@ from privacy_shield.plugin import PrivacyShieldPlugin
 
 
 @pytest.fixture
-def plugin():
+def plugin(monkeypatch):
     """Return a configured plugin instance (workshop key, memory mapper)."""
     import os
 
-    os.environ["PRIVACY_SHIELD_WORKSHOP"] = "true"
+    # Issue #8: env write via monkeypatch — a bare os.environ assignment
+    # polluted the whole remaining session (isolation leak of its own).
+    monkeypatch.setenv("PRIVACY_SHIELD_WORKSHOP", "true")
     config = PrivacyShieldConfig()
     config.mode = "limited"
     # PS-MAPPER-004: fail closed — bare disk defaults without a key now raise.
     # This fixture wants a memory mapper (see docstring), so request one.
     config.storage_mode = "memory"
     config.reasoning = ReasoningBlockConfig(mode="restore", confidence_threshold=0.85)
+    # Issue #8: direct-config is env-blind — sinks must be deliberate.
+    set_direct_config_sinks(config, "issue8-red-team")
     plugin = PrivacyShieldPlugin(config=config)
     # Close salt cache between tests for deterministic counters.
     plugin.pseudonymizer.clear_cache()

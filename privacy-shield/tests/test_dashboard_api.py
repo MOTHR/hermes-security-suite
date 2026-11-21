@@ -15,12 +15,15 @@ from fastapi.testclient import TestClient
 from privacy_shield import __version__
 
 
-def _make_client(tmp_path: Path) -> TestClient:
+def _make_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     """Mount the plugin router in a throwaway FastAPI app and HERMES_HOME."""
     # router imports load_config lazily; point it at a temp home.
+    # Issue #8: monkeypatch scope only — a bare os.environ write leaked the
+    # patched HERMES_HOME (and thus the router's config) into every later
+    # test in the session.
     home = tmp_path / "hermes_home"
     home.mkdir(parents=True)
-    os.environ["HERMES_HOME"] = str(home)
+    monkeypatch.setenv("HERMES_HOME", str(home))
     # Load the router inside this fixture so it sees the patched home.
     from privacy_shield.dashboard.plugin_api import router
 
@@ -30,8 +33,8 @@ def _make_client(tmp_path: Path) -> TestClient:
 
 
 @pytest.fixture
-def client(tmp_path):
-    yield _make_client(tmp_path)
+def client(tmp_path, monkeypatch):
+    yield _make_client(tmp_path, monkeypatch)
 
 
 def test_get_config_returns_schema_and_values(client):

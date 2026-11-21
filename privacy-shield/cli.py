@@ -11,6 +11,7 @@ Usage:
 
 from __future__ import annotations
 
+import os
 import secrets
 import subprocess
 import sys
@@ -384,11 +385,29 @@ def _check_echt() -> bool:
 
 def _check_pytest() -> bool:
     """Stage 3: Run pytest."""
+    # Issue #8 / orakel R5 belt: the doctor subprocess must not inherit
+    # the operator's ambient privacy-shield env. The suite's conftest
+    # hard-sets its isolation itself, but this scrub keeps ambient
+    # production sink paths out of the child in the first place (B3).
+    child_env = {
+        key: value
+        for key, value in os.environ.items()
+        if key
+        not in (
+            "PRIVACY_SHIELD_AUDIT_LOG_PATH",
+            "PRIVACY_SHIELD_AUDIT_JSONL_PATH",
+            "PRIVACY_SHIELD_TEST_SINK_BASE",
+            "PRIVACY_SHIELD_KEY_FILE",
+            "PRIVACY_SHIELD_WORKSHOP",
+            "LOG_JSON",
+        )
+    }
     try:
         result = subprocess.run(
             [sys.executable, "-m", "pytest", "tests/", "-q"],
             capture_output=True, text=True, timeout=60,
             cwd=str(_PLUGIN_ROOT),
+            env=child_env,
         )
         return result.returncode == 0
     except Exception:

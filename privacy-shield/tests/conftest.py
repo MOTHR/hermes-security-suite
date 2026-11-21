@@ -10,6 +10,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+import pytest
+
 PLUGIN_DIR = Path(__file__).resolve().parent.parent
 # Import-path selection: plugins/privacy-shield is a symlink to the active
 # worktree, so Path(__file__) always resolves INTO the worktree tree — the
@@ -22,9 +24,74 @@ _PLUGIN_PARENT_CANDIDATES = (
     str(PLUGIN_DIR.parent),
 )
 
+# Issue #8 (t_70e1ea18): the isolation seam must be importable before the
+# first pytest_configure line runs — tests/ is not on sys.path yet here.
+_TESTS_DIR = str(Path(__file__).resolve().parent)
+if _TESTS_DIR not in sys.path:
+    sys.path.insert(0, _TESTS_DIR)
+from _ps_test_isolation import (  # noqa: E402
+    PS_TEST_SINK_ENV,
+    apply_test_isolation,
+    assert_rotating_handlers_inside,
+)
 
+
+@pytest.fixture(autouse=True)
+def _ps_sinks_stay_under_pytest_tmp():
+    """Issue #8 Layer-3: assert, per-test, that every rotating handler
+    attached to ``privacy_shield*`` loggers writes inside the pytest
+    sink base. Regression instead of silent leakage (orakel K2:
+    function-scoped, not session-start)."""
+    yield
+    sink = os.environ.get(PS_TEST_SINK_ENV)
+    if sink:
+        offenders = assert_rotating_handlers_inside(sink)
+        assert not offenders, (
+            "Issue #8: privacy_shield rotating handler(s) attached OUTSIDE "
+            f"the pytest sink base {sink}: {offenders}"
+        )
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Issue #8 Layer-3 belt: report any non-compliant sink after the run."""
+    sink = os.environ.get(PS_TEST_SINK_ENV)
+    if not sink:
+        return
+    offenders = assert_rotating_handlers_inside(sink)
+    if offenders:
+        sys.stderr.write(
+            "WARNING (Issue #8): privacy_shield rotating handler(s) OUTSIDE "
+            f"the pytest sink base {sink}: {offenders}\n"
+        )
+
+
+@pytest.hookimpl(trylast=True)
 def pytest_configure(config):
-    """Ensure the plugins directory is on sys.path so 'import privacy_shield' works."""
+    """Ensure the plugins directory is on sys.path + publish isolation.
+
+    ``trylast`` (Issue #8): pytest's tempdir plugin sets
+    ``config._tmp_path_factory`` in its own ``pytest_configure``; running
+    after it lets the isolation redirect onto the SAME session basetemp
+    the ``tmp_path`` fixture files land under. Hook ordering still fires
+    this strictly before collection, so no test module (and no plugin
+    ``__init__``) runs unisolated.
+    """
+    # ── Layer-1 isolation FIRST: fake-home redirect + hard-set sinks. ─────
+    # The attach happens at plugin-INIT (never at import), so the hard-set
+    # must be in place before ANY test module is collected or imported and
+    # ambient production env must be overridden, not merely defaulted to
+    # if-unset semantics (the old env fallback respected a pre-set
+    # production value — orakel probe B3).
+    try:
+        tmp_base = Path(config._tmp_path_factory.getbasetemp())
+    except AttributeError:
+        from _pytest.tmpdir import TempPathFactory
+
+        factory = TempPathFactory.from_config(config, _ispytest=True)
+        config._tmp_path_factory = factory
+        tmp_base = factory.getbasetemp()
+    apply_test_isolation(tmp_base)
+
     # The repo root must win import resolution: pytest prepends rootdir, but
     # this hook re-inserted ~/.hermes/plugins at index 0, so 'import
     # privacy_shield' resolved to the DEPLOYED copy (c001 worktree via
@@ -35,9 +102,8 @@ def pytest_configure(config):
     if repo_root not in sys.path:
         sys.path.insert(0, repo_root)
     # tests/ itself is importable (shared seam helpers for v1.9.0 contract tests).
-    tests_dir = str(Path(__file__).resolve().parent)
-    if tests_dir not in sys.path:
-        sys.path.insert(0, tests_dir)
+    if _TESTS_DIR not in sys.path:
+        sys.path.insert(0, _TESTS_DIR)
     for candidate in _PLUGIN_PARENT_CANDIDATES:
         if (
             not candidate
@@ -82,15 +148,3 @@ def pytest_configure(config):
             del sys.modules[stale]
         sys.path.insert(0, repo_root)
         importlib.import_module("privacy_shield")
-
-    # Test-log isolation: redirect the rotating operator log to pytest's
-    # tmp base dir so test fixtures never append to the production
-    # privacy-shield.log. setdefault keeps a pre-set value authoritative.
-    try:
-        tmp_base = config._tmp_path_factory.getbasetemp()
-    except AttributeError:
-        tmp_base = Path(tempfile.gettempdir()) / "privacy-shield-pytest"
-    os.environ.setdefault(
-        "PRIVACY_SHIELD_AUDIT_LOG_PATH",
-        str(tmp_base / "privacy-shield-test.log"),
-    )

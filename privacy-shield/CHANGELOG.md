@@ -1,3 +1,48 @@
+## [1.9.6] - 2026-11-21
+
+- **fix(Issue #8) — Test-Isolation über Init-Zeit-Attaches (6-Layer-Design nach
+  orakel t_f0434d31)**: Test-Fixture-Output landete im Production-Operator-Log
+  (`profiles/default/.../privacy-shield.log`; 938 Fixture-Zeilen auf dieser
+  Maschine, 11.11.–20.11., vom Monitor als 325 Alerts fehlgelesen). Die
+  Diagnose „Handler attached at import" war empirisch falsch (0 Handler nach
+  Package-Import) — das reale Leck läuft am Plugin-INIT über drei Kanäle:
+  **B1** direct-config-Attach (Dataclass-Defaults sind env-blind, Idempotenz
+  friert den ersten Attach für die Session ein), **B2** user-config.yaml-Merge
+  schlägt jede conftest-Env-Isolation, **B3** ambient-Env überlebt
+  `setdefault`. Die Layer:
+
+  - **L1 conftest** (`tests/conftest.py`, `pytest_configure` `trylast` —
+    nach dem pytest-Tempdir-Plugin, damit die Fake-HOME-Isolation auf dieselbe
+    Session-Basetemp landet wie `tmp_path`): Fake-`HOME`/`HERMES_HOME`-
+    Redirect (deckt alle `expanduser`-Sinks + B2 atomar ab), HARD-SET von
+    `PRIVACY_SHIELD_AUDIT_LOG_PATH`/`AUDIT_JSONL_PATH` (das
+    setdefault-Retinieren ist abgelöst — Design-Änderung, B3), Dummy-
+    `RESTORE_CHAT_ID` (kein
+    `pass`-Secret-Store-Subprocess aus der Dataclass-Default-Factory), Scrub
+    der ambienten Doctor-Kanäle (`WORKSHOP`, `KEY_FILE`, `REASONING_*`,
+    `STORAGE_MODE`, `MODE`, `LOG_JSON`).
+  - **L2 in-package Guard**: `attach_rotating_handler` verweigert fail-closed
+    jeden Attach, dessen Pfad bei gesetztem
+    `PRIVACY_SHIELD_TEST_SINK_BASE` nicht unter der Pytest-Basetemp liegt.
+    Produktionsverhalten unverändert (Guard inaktiv ohne Env-Contract).
+  - **L3 Assertion**: autouse, function-scoped, assertiert pro Test, dass
+    alle `privacy_shield*`-Rotating-Handler unter der Basetemp bleiben;
+    `pytest_sessionfinish`-Belt meldet Restverstöße.
+  - **L4 B1-Sites**: direct-config-Plugin-Helper setzen Sinks jetzt
+    explizit über das neue Fail-closed-Seam `tests/_ps_test_isolation.py`
+    (`set_direct_config_sinks`) — orakel-B1-Liste: red_team-Seal-Team,
+    restore_miss_v176, fix_1e (+5 Sites). Zusätzlich gefasst beim Weg:
+    `test_dashboard_api` schrieb `HERMES_HOME` ohne Restore in die Session.
+  - **L5 doctor**: Stage-3-Subprocess erhält geschrubbte Env (belt).
+  - **L6 JSONL**: `AuditLogger`-Init (mkdir+chmod 700 am Init) von Fake-HOME
+    gedeckt und explizit getestet (`test_suite_log_isolation.py`).
+
+  Regression: `tests/test_suite_log_isolation.py` (20 Tests, Suite-Niveau);
+  `test_test_log_isolation.setdefault`-Test intentional umgeschrieben
+  (Semantikwechsel dokumentiert, kein stiller Delete). Voll-Suite 1132
+  passed / 6 skipped mit Null neuen Zeilen in Production-Sinks (Vorher/
+  Nachher-`sha256` im Task-Workspace).
+
 ## [1.9.5] - 2026-11-19
 
 - **fix(Issue #6) — Doppel-Ausgabe im restore-Modus (`transform_is_inline`)**:
