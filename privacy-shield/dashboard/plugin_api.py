@@ -132,7 +132,7 @@ EDITABLE_FIELDS: dict[str, dict[str, Any]] = {
     "audit_log_path": {
         "type": "string",
         "label": "Operator audit log path",
-        "default": "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log",
+        "default": "~/.hermes/privacy-shield.log",
     },
     "audit_log_retention_days": {
         "type": "int",

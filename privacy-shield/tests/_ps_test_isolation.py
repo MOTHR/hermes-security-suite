@@ -88,11 +88,15 @@ def apply_test_isolation(tmp_base: Path) -> Path:
     os.environ["HOME"] = str(home)
     os.environ["HERMES_HOME"] = str(hermes_home)
     os.environ[PS_TEST_SINK_ENV] = str(sink_base)
+    # Issue #9: the hard-set sinks live INSIDE the fake hermes home, so a
+    # test deployment looks like a production deployment (explicit pins
+    # under $HERMES_HOME) and the Issue-#9 warn-guard stays silent for
+    # normal suite runs — only genuinely out-of-home sinks warn.
     os.environ["PRIVACY_SHIELD_AUDIT_LOG_PATH"] = str(
-        sink_base / "privacy-shield-test.log"
+        hermes_home / "05-Logs-Snapshots" / "privacy-shield-test.log"
     )
     os.environ["PRIVACY_SHIELD_AUDIT_JSONL_PATH"] = str(
-        sink_base / "privacy-shield-test-audit.jsonl"
+        hermes_home / "privacy-shield-test-audit.jsonl"
     )
     os.environ["PRIVACY_SHIELD_RESTORE_CHAT_ID"] = "0-test-fixture"
     for var in AMBIENT_SCRUB_VARS:
@@ -132,5 +136,8 @@ def set_direct_config_sinks(config: Any, name: str) -> None:
             "direct-config sinks would fall through to production defaults"
         )
     base = Path(sink)
-    config.audit_log_path = str(base / f"{name}.log")
-    config.audit_jsonl_path = str(base / f"{name}.jsonl")
+    # Issue #9: point B1 sinks at the fake hermes home (inside the sink
+    # base), so the warn-guard treats them like production pins.
+    _, hermes_home = fake_home_env(base)
+    config.audit_log_path = str(hermes_home / f"{name}.log")
+    config.audit_jsonl_path = str(hermes_home / f"{name}.jsonl")

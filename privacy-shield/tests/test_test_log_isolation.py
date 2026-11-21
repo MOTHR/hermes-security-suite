@@ -2,8 +2,8 @@
 
 Verifies that load_config() honours the PRIVACY_SHIELD_AUDIT_LOG_PATH
 environment override (redirecting the rotating operator log away from the
-production path) and that the default is unchanged when the variable is
-absent.
+production path) and that the default stays HERMES_HOME-anchored when the
+variable is absent (Issue #9: fleet root, no profile claim).
 """
 
 import os
@@ -11,9 +11,11 @@ from pathlib import Path
 
 from privacy_shield.config import load_config
 
-DEFAULT_LOG_PATH = (
-    "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log"
-)
+#: Issue #9: the un-pinned default resolves under $HERMES_HOME (the
+#: conftest's fake home in test sessions), no longer the legacy
+#: ``profiles/default`` claim. Evaluated per-test, not at import.
+def _default_log_path() -> str:
+    return str(Path(os.environ["HERMES_HOME"]) / "privacy-shield.log")
 
 
 class TestAuditLogPathOverride:
@@ -25,10 +27,11 @@ class TestAuditLogPathOverride:
 
     def test_env_unset_keeps_default(self, monkeypatch):
         """Smith R2-blocker-3: load_config hands out EXPANDED paths — the
-        literal-~ default never reaches a consumer cwd-relative."""
+        literal-~ default never reaches a consumer cwd-relative.
+        Issue #9: the un-pinned default is $HERMES_HOME-anchored."""
         monkeypatch.delenv("PRIVACY_SHIELD_AUDIT_LOG_PATH", raising=False)
         config = load_config()
-        assert config.audit_log_path == os.path.expanduser(DEFAULT_LOG_PATH)
+        assert config.audit_log_path == _default_log_path()
         assert "~" not in config.audit_log_path
 
     def test_conftest_hard_set_replaces_setdefault_semantics(self):

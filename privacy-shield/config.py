@@ -45,6 +45,15 @@ ALLOWED_RESTORE_MISS_STRATEGIES = ("placeholder", "keep")
 DEFAULT_RESTORE_MISS_PLACEHOLDER = "[maskiertes PII – nicht wiederherstellbar]"
 TOKEN_SUFFIX_PATTERN = re.compile(r"[0-9a-f]{" + str(DEFAULT_HASH_LENGTH) + r"}")
 
+# Issue #9: neutraler Fleet-Root-Default. Die Plugin-Instanz auf dem
+# Shared-Gateway ist single-identity (ein Prozess, alle Profile) — sie hat
+# logisch genau EINEN Ziel-Pfad, daher $HERMES_HOME statt eines stillen
+# Profile-Claims (`profiles/default` bis v1.9.6). Aufgelöst wird der
+# Default erst in ``load_config`` (env > config.yaml-Merge > default),
+# damit bereits gepinnte Deploy-Setups lautlos-wirksam bleiben.
+DEFAULT_AUDIT_LOG_PATH = "~/.hermes/privacy-shield.log"
+DEFAULT_AUDIT_JSONL_PATH = "~/.hermes/privacy-shield-audit.jsonl"
+
 
 @dataclass
 class ReasoningBlockConfig:
@@ -284,17 +293,18 @@ class PrivacyShieldConfig:
 
     # Audit (FIX-PS3 — reaktiviert per Butler R5 / BUTLER-PS-2 HIGH).
     # Persistente, side-channel-sichere Audit-Trail (JSONL, chmod 600).
-    # Default-Pfad liegt im aktiven Profil-Workspace, damit die Datei im
-    # normalen Hermes-Backup-Pfad enthalten ist und nicht in einem
-    # geteilten Verzeichnis mit zu lockeren Rechten entsteht.
-    audit_jsonl_path: str = "~/.hermes/profiles/default/workspace/privacy-shield-audit.jsonl"
+    # DEFAULT_AUDIT_*: neutraler Fleet-Root ($HERMES_HOME), nie ein
+    # Profil-Claim — Issue #9: eine Plugin-Instanz auf dem Shared-Gateway
+    # ist single-identity, ein Profil-Default miskribuiert nur still.
+    # Aufgeloest wird erst in load_config (env > config.yaml > default).
+    audit_jsonl_path: str = DEFAULT_AUDIT_JSONL_PATH
     audit_jsonl_enabled: bool = True
 
     # BUTLER-PS-4 / FIX-PS-R5-OPS: rotierender Operator-Logger (Rotation
     # + Retention). Defaults spiegeln Injection-Shield für eine konsistente
     # Operations-Sprache über beide Plugins: 10 MiB × 5 Backups + 90-Tage
     # Pruning (DSGVO Art. 5(1)(e) Speicherbegrenzung).
-    audit_log_path: str = "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log"
+    audit_log_path: str = DEFAULT_AUDIT_LOG_PATH
     audit_log_max_bytes: int = 10 * 1024 * 1024  # 10 MiB
     audit_log_backup_count: int = 5
     audit_log_retention_days: int = 90
@@ -443,13 +453,18 @@ def load_config() -> PrivacyShieldConfig:
     4. Production mode: disable plugin and warn instead of crashing.
 
     Phase-4 change: the plugin must never crash Hermes initialization because
-    of a missing key. In production without a key it falls back to enabled=False
-    and logs the setup command.
+    of a missing key. In production without a key it falls back to
+    ``enabled=False`` and logs the setup command.
 
     DESKTOP-UI v1.5.0: after defaults are built, merge any user overrides from
     ``~/.hermes/config.yaml`` under ``plugins.entries.privacy-shield``. This
     lets the Desktop-Controls backend persist edits where Hermes already looks
-    for plugin settings, without adding a new config file.
+    for plugin settings, without adding a new config file. Issue #9: the
+    merge runs BEFORE the env-override block so explicit environment values
+    win (env > config.yaml-Merge > default).
+
+    DESKTOP-UI v1.9.7 (Issue #9): un-pinned audit-sink defaults resolve under
+    ``$HERMES_HOME`` (neutral fleet root) at load time.
     """
     import logging
     logger = logging.getLogger(__name__)
@@ -511,6 +526,12 @@ def load_config() -> PrivacyShieldConfig:
         )
         config.encryption_key = _generate_key()
 
+    # Merge user overrides from Hermes config.yaml BEFORE the env block:
+    # Issue #9 pins the documented precedence env > config.yaml-Merge >
+    # default — an explicit environment override must not be silently
+    # overwritten by the shared config.yaml (orakel B2, t_70e1ea18).
+    _merge_user_config(config)
+
     # Allow tests and CI to override a few fields via environment.
     # Applied regardless of key state: test isolation must not depend on
     # whether a real key exists in the pass store.
@@ -521,6 +542,18 @@ def load_config() -> PrivacyShieldConfig:
     # fixtures never write into the production log.
     if "PRIVACY_SHIELD_AUDIT_LOG_PATH" in os.environ:
         config.audit_log_path = os.environ["PRIVACY_SHIELD_AUDIT_LOG_PATH"]
+
+    # Issue #9: resolve the UN-overridden audit defaults against
+    # $HERMES_HOME at load time (the dataclass literal is only the tilde
+    # form of the fleet root). Equality with the module constants marks
+    # "no env pin, no config.yaml pin" — explicit values never move.
+    _hermes_home = Path(
+        os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
+    )
+    if config.audit_log_path == DEFAULT_AUDIT_LOG_PATH:
+        config.audit_log_path = str(_hermes_home / "privacy-shield.log")
+    if config.audit_jsonl_path == DEFAULT_AUDIT_JSONL_PATH:
+        config.audit_jsonl_path = str(_hermes_home / "privacy-shield-audit.jsonl")
     if "PRIVACY_SHIELD_STORAGE_MODE" in os.environ:
         config.storage_mode = os.environ["PRIVACY_SHIELD_STORAGE_MODE"]
     if "PRIVACY_SHIELD_MODE" in os.environ:
@@ -558,9 +591,8 @@ def load_config() -> PrivacyShieldConfig:
         config.enabled = False
         config.encryption_key = ""  # empty key: mapper must not be used
 
-    # Merge user overrides from Hermes config.yaml regardless of key state;
-    # a user might still want to tune thresholds before enabling the key.
-    _merge_user_config(config)
+    # (The config.yaml merge moved ABOVE the env block — Issue #9
+    # precedence: env > config.yaml-Merge > default.)
     # v1.7.6 (Decision 1): invalid restore_miss_strategy falls back to the
     # default with a warning instead of silently disabling the residual pass
     # semantics — same contract as the reasoning-mode env validation above.

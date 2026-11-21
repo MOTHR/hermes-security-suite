@@ -1,5 +1,5 @@
 name: privacy-shield
-version: "1.9.6"
+version: "1.9.7"
 description: >-
   Privacy-Shield — Tokenizes personal data (PII) in LLM output before
   sending it to cloud providers. Modes: off / audit / restore. Configurable
@@ -81,16 +81,16 @@ settings:
     description: "Minimum OCR confidence (0-100) per word before downstream detection."
   - name: audit_jsonl_path
     type: string
-    default: "~/.hermes/profiles/default/workspace/privacy-shield-audit.jsonl"
-    description: "FIX-PS3: persistenter Audit-Trail (JSONL). chmod 600 nach jedem Write. Side-channel-safe (bucketed count + SHA-256 session hash, kein Klartext-PII)."
+    default: "~/.hermes/privacy-shield-audit.jsonl"
+    description: "FIX-PS3 + Issue #9: persistenter Audit-Trail (JSONL). Default: $HERMES_HOME/privacy-shield-audit.jsonl — neutraler Fleet-Root, kein Profil-Claim (Single-Identity). chmod 600 nach jedem Write. Side-channel-safe (bucketed count + SHA-256 session hash, kein Klartext-PII)."
   - name: audit_jsonl_enabled
     type: bool
     default: true
     description: "FIX-PS3: persistenter Audit-Trail aktivieren. Disable nur für Sonder-Debug-Setups (z.B. ephemeral container)."
   - name: audit_log_path
     type: string
-    default: "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log"
-    description: "BUTLER-PS-4 / FIX-PS-R5-OPS: Operator-Logger Pfad. Wird via RotatingFileHandler beschrieben (chmod 600/700)."
+    default: "~/.hermes/privacy-shield.log"
+    description: "BUTLER-PS-4 + Issue #9: Operator-Logger Pfad. Default: $HERMES_HOME/privacy-shield.log — neutraler Fleet-Root, kein Profil-Claim (Single-Identity). Pinned-Werte (env/config.yaml) bleiben wirksam und warnen bei Zielen außerhalb $HERMES_HOME (fail-open). Wird via RotatingFileHandler beschrieben (chmod 600/700)."
   - name: audit_log_max_bytes
     type: int
     default: 10485760

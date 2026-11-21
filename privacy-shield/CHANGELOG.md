@@ -1,3 +1,43 @@
+## [1.9.7] - 2026-11-21
+
+- **fix(Issue #9) — HERMES_HOME-aware Audit-Sink-Defaults + Out-of-Home-
+  Warn-Guard**: der un-pinned Default von `audit_log_path` und
+  `audit_jsonl_path` hardcoded `profiles/default` — ein stiller
+  Profil-Claim, auf dem Shared-Gateway (eine Plugin-Instanz, alle Profile,
+  single identity) faktisch falsch: 8,3 MB Log landeten im Workspace eines
+  fremden Profils. Neuer Vertrag:
+
+  - **Default-Resolver**: beide Sinks lösen un-pinned auf
+    `$HERMES_HOME/privacy-shield.log` bzw.
+    `$HERMES_HOME/privacy-shield-audit.jsonl` (neutraler Fleet-Root).
+    `HERMES_HOME` unset → `~/.hermes/` (identisch zum Config-Merge-Fallback).
+  - **Warn-Guard** (`log_utils.warn_sink_outside_hermes_home`, aufgerufen an
+    beiden Sinks pro Plugin-Init): resolvierter Zielpfad außerhalb
+    `$HERMES_HOME` → EINE lautstark-klar WARNING, **fail-open** (weiter
+    schreiben, aber sichtbar); innerhalb → still.
+  - **Precedence jetzt dokumentiert + getestet**: env
+    (`PRIVACY_SHIELD_AUDIT_LOG_PATH`/`..._JSONL_PATH`) > config.yaml-Merge >
+    Default. Der Merge läuft in `load_config` JETZT VOR dem Env-Block —
+    vorher überschrieb config.yaml lautlos jede Env-Isolation (orakel B2).
+  - **Regression**: `tests/test_issue9_log_defaults.py` (Set/Unset
+    `$HERMES_HOME`-Resolution, config-pinned-gewinnt, env-gewinnt-über-Merge,
+    Warn-Guard trigger/Silent, Plugin-Init-Integration). Conftest-Sinks
+    (Issue-#8-Layer-1) wandern mit: Test-Deployments pinnen jetzt unter der
+    Fake-`HERMES_HOME`, wie Produktion — nur echt außerhalb liegende Sinks
+    warnen.
+
+  **Migration (Store-User)**: Werte, die in `config.yaml` unter
+  `plugins.entries.privacy-shield` oder via Env-Variable gepinnt sind,
+  bleiben exakt wirksam. Nur der un-pinned Default ändert sich: vorher
+  `~/.hermes/profiles/default/workspace/...`, jetzt
+  `$HERMES_HOME/privacy-shield.log` (+ `privacy-shield-audit.jsonl`).
+  Ein nicht-gepinnter Bestandspfad unter `profiles/default/workspace/`
+  wird nicht kopiert — wer die Historie weiterverwenden will, verschiebt
+  die Datei einmalig an den neuen Default-Ort; der Warn-Guard markiert
+  jedes Sink außerhalb `$HERMES_HOME` lautstark. Desktop-Controls- und
+  Dashboard-Defaults (`plugin.yaml`, `dashboard/plugin_api.py`,
+  `rotating_log.DEFAULT_LOG_PATH`) spiegeln den neuen Root.
+
 ## [1.9.6] - 2026-11-21
 
 - **fix(Issue #8) — Test-Isolation über Init-Zeit-Attaches (6-Layer-Design nach
