@@ -122,11 +122,17 @@ class AuditLogger:
     """
 
     def __init__(self, log_path: str | os.PathLike[str] | None = None):
-        self.log_path = Path(
-            os.path.expanduser(log_path)
-            if log_path
-            else "~/.hermes/profiles/default/workspace/privacy-shield-audit.jsonl"
-        )
+        if log_path:
+            self.log_path = Path(os.path.expanduser(log_path))
+        else:
+            # Issue #9: the un-pinned fallback resolves under $HERMES_HOME
+            # (neutral fleet root), same contract as load_config's
+            # audit_jsonl_path default — never a silent profile claim
+            # (single-identity plugin instance on the shared gateway).
+            _hermes_home = Path(
+                os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
+            )
+            self.log_path = _hermes_home / "privacy-shield-audit.jsonl"
         self._ensure_dir()
         self._ensure_perms()
 

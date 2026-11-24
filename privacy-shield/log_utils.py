@@ -16,6 +16,8 @@ without spinning up a full :class:`PrivacyShieldPlugin` instance.
 from __future__ import annotations
 
 import logging
+import os
+from pathlib import Path
 from typing import Any
 
 # Use the same logger as PrivacyShieldPlugin so existing
@@ -108,9 +110,41 @@ def log_dropped_detections(dropped_hits: list[Any], session_id: str) -> None:
     )
 
 
+def warn_sink_outside_hermes_home(
+    resolved_path: str | Path, *, sink: str
+) -> bool:
+    """Issue #9: one loud WARNING per init when a sink leaves ``$HERMES_HOME``.
+
+    Fail-open by contract: the caller keeps using the sink; the warning only
+    makes the out-of-profile write *visible* so a misconfigured deployment is
+    auditable instead of silent. Returns ``True`` when the warning fired.
+
+    Single-identity rationale: the plugin instance on the shared Hermes
+    gateway serves every profile — a sink claiming a specific profile's
+    workspace is a silent misattribution, hence the neutral fleet-root
+    default and this guard for everything an operator pins outside it.
+    """
+    path = Path(resolved_path).expanduser().resolve()
+    home_root = Path(
+        os.environ.get("HERMES_HOME", str(Path.home() / ".hermes"))
+    ).expanduser().resolve()
+    if path.is_relative_to(home_root):
+        return False
+    _logger.warning(
+        "Privacy-Shield Issue #9: %s sink resolves OUTSIDE $HERMES_HOME: "
+        "%s (fleet root: %s) — writing there anyway (fail-open), pin it "
+        "under $HERMES_HOME or audit this path.",
+        sink,
+        path,
+        home_root,
+    )
+    return True
+
+
 __all__ = [
     "bucket_count",
     "log_detections",
     "log_dropped_detections",
     "partition_by_confidence",
+    "warn_sink_outside_hermes_home",
 ]

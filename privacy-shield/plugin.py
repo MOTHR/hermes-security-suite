@@ -30,6 +30,7 @@ from .log_utils import (
     log_detections,
     log_dropped_detections,
     partition_by_confidence,
+    warn_sink_outside_hermes_home,
 )
 from .mapping_table import InMemoryMappingTable, MappingTable
 from .metrics import (
@@ -122,6 +123,12 @@ class PrivacyShieldPlugin:
         self._image_preprocessor = self._init_attachment_preprocessor("image")
         self._email_preprocessor = self._init_attachment_preprocessor("email")
         # FIX-PS3: persistenter Audit-Trail. No-Op wenn ``enabled=False``.
+        # Issue #9: warn-guard — JSONL sink outside $HERMES_HOME → one loud
+        # WARNING, fail-open (the sink stays active but visible).
+        if self.config.audit_jsonl_enabled:
+            warn_sink_outside_hermes_home(
+                self.config.audit_jsonl_path, sink="audit-jsonl"
+            )
         self.audit: AuditLogger | None = (
             AuditLogger(self.config.audit_jsonl_path)
             if self.config.audit_jsonl_enabled
@@ -131,6 +138,10 @@ class PrivacyShieldPlugin:
         # Idempotent across multiple PrivacyShieldPlugin instances.
         try:
             log_cfg = settings_from_config(self.config)
+            # Issue #9: warn-guard on the operator-log sink (fail-open).
+            warn_sink_outside_hermes_home(
+                log_cfg["log_path"], sink="audit-log"
+            )
             attach_rotating_handler(
                 log_path=log_cfg["log_path"],
                 max_bytes=log_cfg["max_bytes"],

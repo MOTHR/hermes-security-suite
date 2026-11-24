@@ -31,7 +31,12 @@ from typing import Any, Optional
 # about both plugins the same way. These are intentionally module-level
 # constants (not configurable at runtime) so the Privacy-Shield audit
 # contract is stable across Hermes upgrades.
-DEFAULT_LOG_PATH = "~/.hermes/profiles/default/workspace/05-Logs-Snapshots/privacy-shield.log"
+# Issue #9: neutral fleet-root default — the shared-gateway plugin
+# instance is single-identity, so the fallback never claims a profile.
+# The $HERMES_HOME-aware resolution for un-pinned deployments happens in
+# ``config.load_config``; this constant is the last-resort fallback for
+# call sites without a config object.
+DEFAULT_LOG_PATH = "~/.hermes/privacy-shield.log"
 DEFAULT_MAX_BYTES = 10 * 1024 * 1024  # 10 MiB
 DEFAULT_BACKUP_COUNT = 5
 DEFAULT_RETENTION_DAYS = 90

@@ -87,8 +87,12 @@ class TestConftestIsolationLayer:
         env_before = {k: os.environ.get(k) for k in ISOLATED_ENV_VARS}
         try:
             sink = apply_test_isolation(tmp_path)
+            # Issue #9: the hard-set sinks live under the fake hermes home
+            # (inside the sink base) so the warn-guard treats the test
+            # deployment like a production pin.
+            _, hermes_home = fake_home_env(sink)
             assert os.environ["PRIVACY_SHIELD_AUDIT_LOG_PATH"] == str(
-                sink / "privacy-shield-test.log"
+                hermes_home / "05-Logs-Snapshots" / "privacy-shield-test.log"
             )
             assert os.environ["PRIVACY_SHIELD_AUDIT_LOG_PATH"] != "/tmp/ambient-must-not-win"
         finally:
