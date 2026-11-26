@@ -238,13 +238,15 @@ def get_config() -> dict[str, Any]:
     # The production fallback silently forces enabled=False when no encryption
     # key resolves, which overwrites the saved override AFTER the config.yaml
     # merge — to the Desktop the "Plugin enabled" toggle looks like a save that
-    # never sticks (t_c0a50b6f follow-up). Surface the reason instead.
+    # never sticks (t_c0a50b6f follow-up). Surface the reason instead. Text is
+    # deliberately generic: it must not act as a key-existence oracle over the
+    # pane API (agent-smith review t_c55ac7f5 F1).
     disabled_reason = None
-    if not config.enabled and not config.encryption_key:
+    if not config.enabled:
         disabled_reason = (
-            "No encryption key resolvable (PRIVACY_SHIELD_KEY via keychain/env "
-            "or PRIVACY_SHIELD_KEY_FILE); Privacy-Shield stays disabled until "
-            "the key is provisioned and Hermes restarts."
+            "Plugin disabled by its own safety fallback (configuration "
+            "incomplete). Run 'privacy-shield setup' on the host, then restart "
+            "Hermes."
         )
     return {
         "version": __version__,
