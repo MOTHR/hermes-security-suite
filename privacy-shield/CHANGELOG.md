@@ -1,3 +1,14 @@
+## [Unreleased]
+
+- **feat(ops t_c0a50b6f) — Dashboard-Controls: keyless-Fallback sichtbar machen**: der
+  Production-Fallback in `config.py` erzwingt `enabled=False` NACH dem config-Merge, wenn
+  `PRIVACY_SHIELD_KEY` unauflösbar ist — der Desktop-Toggle „Plugin enabled" sah aus wie ein
+  Save, der nie klebt. `dashboard/plugin_api.py::get_config` liefert jetzt `disabled_reason`
+  (statisch, ohne Key-Existenz-Orakel per agent-smith Review t_c55ac7f5 F1);
+  `desktop/plugin.js` rendert ihn als Status-Hinweis. Commits: 4f50e76, 58400f0.
+  Reviews: t_d1ace9ec (orakel, läuft), t_c55ac7f5 (agent-smith, REQUEST_CHANGES→F1 fixiert),
+  t_e31f852a (seraph, läuft), t_a0649b58 (sysadmin, APPROVE).
+
 ## [1.9.7] - 2026-11-21
 
 - **fix(Issue #9) — HERMES_HOME-aware Audit-Sink-Defaults + Out-of-Home-
