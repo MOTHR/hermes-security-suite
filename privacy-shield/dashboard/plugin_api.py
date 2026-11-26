@@ -11,10 +11,16 @@ from __future__ import annotations
 
 import logging
 import os
+import tempfile
 from dataclasses import fields
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - non-POSIX: no advisory locking available
+    fcntl = None  # type: ignore[assignment,unused-ignore]
 
 try:
     import yaml
@@ -205,30 +211,68 @@ def _load_user_overrides() -> dict[str, Any]:
 
 
 def _write_user_overrides(updates: dict[str, Any]) -> None:
-    """Persist editable overrides under ``plugins.entries.privacy-shield``."""
+    """Persist editable overrides under ``plugins.entries.privacy-shield``.
+
+    The read-modify-write cycle is serialized with an advisory ``flock``
+    on ``config.yaml.lock`` so concurrent writers cannot interleave, and
+    the result is published via ``tempfile`` + ``os.replace`` in the same
+    directory so readers never observe a torn or truncated config.
+    """
     if yaml is None:
         raise HTTPException(status_code=500, detail="PyYAML not available; cannot write config")
     config_path = _config_path()
-    full: dict[str, Any] = {}
-    if config_path.exists():
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                full = yaml.safe_load(f) or {}
-        except Exception as exc:
-            logger.warning("Privacy-Shield dashboard: failed to parse config.yaml: %s", exc)
-            raise HTTPException(status_code=500, detail=f"Failed to parse config.yaml: {exc}")
-
-    full.setdefault("plugins", {}).setdefault("entries", {}).setdefault("privacy-shield", {})
-    current = full["plugins"]["entries"]["privacy-shield"]
-    for key, value in updates.items():
-        if value is None:
-            current.pop(key, None)
-        else:
-            current[key] = value
-
     config_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(config_path, "w", encoding="utf-8") as f:
-        yaml.safe_dump(full, f, default_flow_style=False, sort_keys=False, allow_unicode=True)
+
+    lock_handle = open(config_path.with_name(config_path.name + ".lock"), "a+")
+    try:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_EX)
+
+        full: dict[str, Any] = {}
+        if config_path.exists():
+            try:
+                with open(config_path, "r", encoding="utf-8") as f:
+                    full = yaml.safe_load(f) or {}
+            except Exception as exc:
+                logger.warning("Privacy-Shield dashboard: failed to parse config.yaml: %s", exc)
+                raise HTTPException(status_code=500, detail=f"Failed to parse config.yaml: {exc}")
+
+        full.setdefault("plugins", {}).setdefault("entries", {}).setdefault("privacy-shield", {})
+        current = full["plugins"]["entries"]["privacy-shield"]
+        for key, value in updates.items():
+            if value is None:
+                current.pop(key, None)
+            else:
+                current[key] = value
+
+        existing_mode: int | None = None
+        try:
+            existing_mode = os.stat(config_path).st_mode & 0o777
+        except FileNotFoundError:
+            pass
+
+        fd, tmp_name = tempfile.mkstemp(
+            dir=str(config_path.parent), prefix=config_path.name + ".", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as tmp:
+                yaml.safe_dump(
+                    full, tmp, default_flow_style=False, sort_keys=False, allow_unicode=True
+                )
+                tmp.flush()
+                os.fsync(tmp.fileno())
+            os.chmod(tmp_name, existing_mode if existing_mode is not None else 0o600)
+            os.replace(tmp_name, config_path)
+        except BaseException:
+            try:
+                os.unlink(tmp_name)
+            except FileNotFoundError:
+                pass
+            raise
+    finally:
+        if fcntl is not None:
+            fcntl.flock(lock_handle.fileno(), fcntl.LOCK_UN)
+        lock_handle.close()
 
 
 @router.get("/config")
