@@ -235,11 +235,23 @@ def _write_user_overrides(updates: dict[str, Any]) -> None:
 def get_config() -> dict[str, Any]:
     """Return the effective configuration limited to editable fields."""
     config = load_config()
+    # The production fallback silently forces enabled=False when no encryption
+    # key resolves, which overwrites the saved override AFTER the config.yaml
+    # merge — to the Desktop the "Plugin enabled" toggle looks like a save that
+    # never sticks (t_c0a50b6f follow-up). Surface the reason instead.
+    disabled_reason = None
+    if not config.enabled and not config.encryption_key:
+        disabled_reason = (
+            "No encryption key resolvable (PRIVACY_SHIELD_KEY via keychain/env "
+            "or PRIVACY_SHIELD_KEY_FILE); Privacy-Shield stays disabled until "
+            "the key is provisioned and Hermes restarts."
+        )
     return {
         "version": __version__,
         "fields": EDITABLE_FIELDS,
         "values": _config_to_dict(config),
         "overrides": _load_user_overrides(),
+        "disabled_reason": disabled_reason,
     }
 
 

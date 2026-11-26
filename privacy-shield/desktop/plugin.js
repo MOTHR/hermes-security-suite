@@ -194,6 +194,12 @@ function renderPane(ctx) {
         ],
       }),
 
+      jsx("div", {
+        key: "status-note",
+        style: { display: data.disabled_reason ? "block" : "none", padding: "8px 0", color: "var(--ui-text-secondary)", fontSize: "12px" },
+        children: data.disabled_reason ?? "",
+      }),
+
       ...Object.entries(data.fields).map(([key, field]) => {
         const value = values[key];
         if (field.type === "bool") {
