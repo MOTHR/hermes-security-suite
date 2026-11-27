@@ -288,9 +288,10 @@ def get_config() -> dict[str, Any]:
     disabled_reason = None
     if not config.enabled:
         disabled_reason = (
-            "Plugin disabled by its own safety fallback (configuration "
-            "incomplete). Run 'privacy-shield setup' on the host, then restart "
-            "Hermes."
+            "Plugin is disabled. Either operator-disabled (set "
+            "plugins.entries.privacy-shield.enabled=true to re-enable) or its "
+            "own setup check failed on this host — run 'privacy-shield setup' "
+            "to diagnose, then restart Hermes."
         )
     return {
         "version": __version__,

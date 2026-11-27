@@ -6,8 +6,15 @@
   Save, der nie klebt. `dashboard/plugin_api.py::get_config` liefert jetzt `disabled_reason`
   (statisch, ohne Key-Existenz-Orakel per agent-smith Review t_c55ac7f5 F1);
   `desktop/plugin.js` rendert ihn als Status-Hinweis. Commits: 4f50e76, 58400f0.
-  Reviews: t_d1ace9ec (orakel, läuft), t_c55ac7f5 (agent-smith, REQUEST_CHANGES→F1 fixiert),
-  t_e31f852a (seraph, läuft), t_a0649b58 (sysadmin, APPROVE).
+  Reviews: orakel t_d1ace9ec (REQUEST_CHANGES→F-A1: Text ursachenagnostisch, F-A3:
+  Regressiontests — beides in diesem Delta), agent-smith t_c55ac7f5 (REQUEST_CHANGES→F1:
+  kein Key-Existenz-Oracle), sysadmin t_a0649b58 (APPROVE), seraph t_e31f852a
+  (BLOCKER→F1 default-.env-Key nachgereicht, F4 chmod 600 auf .env-Backups, F2 semantisch
+  verifiziert; F3 Kommentarverlust + F6 Rotation-Runbook als Host-Tickets).
+- **fix(review t_c55ac7f5 F3) — atomar/gelockter Config-Write**: `_write_user_overrides()`
+  serialisiert den RMW-Zyklus mit `fcntl.flock` und publishes via tempfile + `os.replace`
+  (Commit 0ff9dd9; Wave-2-Delta-Verifikation agent-smith t_119b9b59: 2×100-Iter-PoC
+  200/200 Keys, Lost-Update im Alt-Pattern reproduziert, Suite 1149p/7s).
 
 ## [1.9.7] - 2026-11-21
 

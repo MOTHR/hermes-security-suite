@@ -127,3 +127,45 @@ def test_frontend_file_is_readable():
     assert text.strip().endswith("};")
     assert "ctx.register" in text
     assert "ctx.rest" in text
+
+
+# --- disabled_reason (ops t_c0a50b6f toggle-fix; orakel F-A3) -----------------
+
+
+def test_disabled_reason_present_and_oracle_free_when_disabled(client, tmp_path, monkeypatch):
+    """Disabled state must be explained by the pane — without disclosing
+    key-resolution internals (deterministic via forced enabled=False, since the
+    real keyless fallback path is covered end-to-end in the runtime)."""
+    from privacy_shield.dashboard import plugin_api
+
+    config = plugin_api.load_config()
+    monkeypatch.setattr(config, "enabled", False)
+    monkeypatch.setattr(plugin_api, "load_config", lambda: config)
+
+    resp = client.get("/api/plugins/privacy-shield/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["values"]["enabled"] is False
+    reason = data["disabled_reason"]
+    assert isinstance(reason, str) and reason
+    # no key-existence oracle (agent-smith t_c55ac7f5 F1): the text must not
+    # reveal which key variable, source, or file the loader looks at
+    lowered = reason.lower()
+    for forbidden in ("_key", "shield key", "keychain", "key file", "keyfile", ".env", "key resolv"):
+        assert forbidden not in lowered, f"oracle leak via {forbidden!r}: {reason!r}"
+
+
+def test_disabled_reason_none_when_enabled(client, tmp_path, monkeypatch):
+    """Deliberate-off with a resolvable key must NOT get the disabled_reason —
+    get_config only labels the *effective* disabled state (orakel F-A1 PoC Case B)."""
+    from privacy_shield.dashboard import plugin_api
+
+    config = plugin_api.load_config()
+    monkeypatch.setattr(config, "enabled", True)
+    monkeypatch.setattr(plugin_api, "load_config", lambda: config)
+
+    resp = client.get("/api/plugins/privacy-shield/config")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["values"]["enabled"] is True
+    assert data["disabled_reason"] is None
